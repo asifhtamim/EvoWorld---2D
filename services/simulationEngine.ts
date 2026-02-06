@@ -78,30 +78,82 @@ export class SimulationEngine {
     });
   }
 
+  private spawnFoodInZone(minX: number, maxX: number) {
+      this.food.push({
+          id: this.generateId(),
+          position: {
+              x: minX + Math.random() * (maxX - minX),
+              y: Math.random() * Constants.WORLD_HEIGHT
+          },
+          energyValue: Constants.ENERGY_GAIN_FOOD,
+          age: 0
+      });
+  }
+
   // --- Plant Cellular Automata ---
   private growPlants() {
     // 1. Random "Wind/Current" Spawns
     if (Math.random() < 0.1) this.spawnRandomFood();
 
+    // 1b. Beach Bait: Constant small chance to spawn food in the transition zone (220-280)
+    // This lures creatures to the edge.
+    // Adjusted transition zone for larger world map
+    const beachStart = Constants.BIOME_WATER_WIDTH - 30;
+    const beachEnd = Constants.BIOME_WATER_WIDTH + 50;
+    if (Math.random() < 0.08) {
+        this.spawnFoodInZone(beachStart, beachEnd);
+    }
+
     if (this.food.length >= Constants.MAX_FOOD) return;
+
+    // 1c. Ocean Floor Floor (Safety Net)
+    // If water food is critically low, force spawn to prevent extinction.
+    // Increased spawn count to 3 and widened the range (5 to Width-5) to help scattered creatures.
+    const oceanFoodCount = this.food.reduce((acc, f) => (f.position.x < Constants.BIOME_WATER_WIDTH ? acc + 1 : acc), 0);
+    if (oceanFoodCount < 20) {
+        this.spawnFoodInZone(5, Constants.BIOME_WATER_WIDTH - 5);
+        this.spawnFoodInZone(5, Constants.BIOME_WATER_WIDTH - 5);
+        this.spawnFoodInZone(5, Constants.BIOME_WATER_WIDTH - 5);
+    }
 
     // 2. Existing plants spread seeds
     const subsetSize = Math.min(this.food.length, 30);
     for(let i=0; i<subsetSize; i++) {
+        // Pick a random parent
         const parent = this.food[Math.floor(Math.random() * this.food.length)];
         
         let growthChance = 0.01;
-        if (parent.position.x < Constants.BIOME_WATER_WIDTH) {
+
+        // Transition Zone (Beach) Logic: High growth to sustain beach-goers
+        if (parent.position.x > beachStart && parent.position.x < beachEnd) {
+            growthChance = 0.40; // High growth rate on the shoreline
+        } else if (parent.position.x < Constants.BIOME_WATER_WIDTH) {
             growthChance = Constants.BIOME_WATER_GROWTH;
-        } else if (parent.position.x < Constants.BIOME_WATER_WIDTH + 300) {
+        } else if (parent.position.x < Constants.BIOME_WATER_WIDTH + Constants.BIOME_FOREST_WIDTH) {
             growthChance = Constants.BIOME_FOREST_GROWTH;
         } else {
             growthChance = Constants.BIOME_SCRUB_GROWTH;
         }
 
-        if (Math.random() < growthChance) {
+        // Handle growthChance > 1 (e.g. 30.0 for water)
+        // Guaranteed spawns = floor(chance). Probabilistic remainder = chance % 1
+        const guaranteedSpawns = Math.floor(growthChance);
+        const remainderChance = growthChance % 1;
+        
+        const spawnsToAttempt = guaranteedSpawns + (Math.random() < remainderChance ? 1 : 0);
+
+        for(let k = 0; k < spawnsToAttempt; k++) {
+            // Stop if we hit cap mid-loop
+            if (this.food.length >= Constants.MAX_FOOD) break;
+
             const angle = Math.random() * Math.PI * 2;
-            const dist = 10 + Math.random() * 40;
+            
+            // Distribute widely in water to avoid clumps (as requested)
+            let dist = 10 + Math.random() * 40;
+            if (parent.position.x < Constants.BIOME_WATER_WIDTH) {
+                dist = 20 + Math.random() * 200; // MUCH wider spread for water
+            }
+
             const newX = parent.position.x + Math.cos(angle) * dist;
             const newY = parent.position.y + Math.sin(angle) * dist;
 
@@ -465,7 +517,8 @@ export class SimulationEngine {
     const inWater = critter.position.x < Constants.BIOME_WATER_WIDTH;
     let friction = inWater ? Constants.BIOME_WATER_DRAG : Constants.BIOME_FOREST_FRICTION;
     
-    if (!inWater && critter.position.x > Constants.BIOME_WATER_WIDTH + 300) {
+    // Forest width check
+    if (!inWater && critter.position.x > Constants.BIOME_WATER_WIDTH + Constants.BIOME_FOREST_WIDTH) {
         friction = Constants.BIOME_SCRUB_FRICTION;
     }
 

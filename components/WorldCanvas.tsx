@@ -1,6 +1,7 @@
-import React, { useEffect, useRef } from 'react';
+import React, { useEffect, useRef, useState } from 'react';
 import { SimulationEngine } from '../services/simulationEngine';
-import { WORLD_WIDTH, WORLD_HEIGHT, BIOME_WATER_WIDTH } from '../constants';
+import { WORLD_WIDTH, WORLD_HEIGHT, BIOME_WATER_WIDTH, BIOME_FOREST_WIDTH } from '../constants';
+import { Gamepad2, ArrowUp, ArrowDown, ArrowLeft, ArrowRight, ZoomIn, ZoomOut } from 'lucide-react';
 
 interface Props {
   simulation: SimulationEngine;
@@ -9,7 +10,48 @@ interface Props {
 
 const WorldCanvas: React.FC<Props> = ({ simulation, speedMultiplier }) => {
   const canvasRef = useRef<HTMLCanvasElement>(null);
+  const containerRef = useRef<HTMLDivElement>(null);
   const requestRef = useRef<number | null>(null);
+  
+  // Camera State
+  const camera = useRef({ x: 0, y: 0 });
+  const keysPressed = useRef<Set<string>>(new Set());
+  
+  const [viewport, setViewport] = useState({ width: 800, height: 600 });
+  const [showControls, setShowControls] = useState(false);
+  const [zoom, setZoom] = useState(0.6); // Default zoomed out to see more area
+
+  // Resize Observer
+  useEffect(() => {
+    if (!containerRef.current) return;
+    const observer = new ResizeObserver(entries => {
+      for (const entry of entries) {
+        const { width, height } = entry.contentRect;
+        setViewport({ width, height });
+      }
+    });
+    observer.observe(containerRef.current);
+    return () => observer.disconnect();
+  }, []);
+
+  // Keyboard Listeners
+  useEffect(() => {
+    const handleDown = (e: KeyboardEvent) => keysPressed.current.add(e.code);
+    const handleUp = (e: KeyboardEvent) => keysPressed.current.delete(e.code);
+    window.addEventListener('keydown', handleDown);
+    window.addEventListener('keyup', handleUp);
+    return () => {
+        window.removeEventListener('keydown', handleDown);
+        window.removeEventListener('keyup', handleUp);
+    }
+  }, []);
+
+  // Wheel Zoom Listener
+  const handleWheel = (e: React.WheelEvent) => {
+      e.preventDefault();
+      const delta = -e.deltaY * 0.001;
+      setZoom(z => Math.max(0.1, Math.min(2.0, z + delta)));
+  };
 
   const drawCritter = (ctx: CanvasRenderingContext2D, c: any, time: number) => {
     ctx.save();
@@ -26,8 +68,6 @@ const WorldCanvas: React.FC<Props> = ({ simulation, speedMultiplier }) => {
     // 1. Draw Limbs / Fins
     ctx.strokeStyle = c.genome.color;
     ctx.fillStyle = c.genome.color;
-
-    // Thicker legs for bigger/land creatures
     ctx.lineWidth = Math.max(1, size * 0.25); 
 
     for (let i = 0; i < limbCount; i++) {
@@ -35,7 +75,6 @@ const WorldCanvas: React.FC<Props> = ({ simulation, speedMultiplier }) => {
         const index = Math.floor(i / 2);
         
         if (isAquatic) {
-            // Draw FINS
             const finBaseX = (size * 0.2) - (index * 4);
             const finBaseY = side * (size * 0.5);
             ctx.beginPath();
@@ -44,11 +83,9 @@ const WorldCanvas: React.FC<Props> = ({ simulation, speedMultiplier }) => {
             ctx.lineTo(finBaseX + 5, finBaseY + (side * limbLen * 0.5));
             ctx.fill();
         } else {
-            // Draw LEGS
             const offset = (index / limbCount) * Math.PI;
             const speed = Math.sqrt(c.velocity.x**2 + c.velocity.y**2);
             const swing = Math.sin(time * 0.5 + offset) * (speed * 2);
-
             const legBaseX = (size * 0.5) - (index * (size / (limbCount/2 + 1)));
             const legBaseY = side * (size * 0.5);
 
@@ -62,19 +99,11 @@ const WorldCanvas: React.FC<Props> = ({ simulation, speedMultiplier }) => {
                ctx.beginPath();
                ctx.arc(legBaseX - swing, legBaseY + (side * limbLen), 3, 0, Math.PI * 2);
                ctx.fill();
-               ctx.strokeStyle = '#ffffff55';
-               ctx.lineWidth = 1;
-               ctx.beginPath();
-               ctx.moveTo(legBaseX - swing - 2, legBaseY + (side * limbLen));
-               ctx.lineTo(legBaseX - swing + 2, legBaseY + (side * limbLen));
-               ctx.stroke();
-               ctx.lineWidth = Math.max(1, size * 0.25);
-               ctx.strokeStyle = c.genome.color;
             }
         }
     }
 
-    // 2. Draw Body
+    // 2. Body
     ctx.fillStyle = c.genome.color;
     if (isCarnivore) {
         ctx.beginPath();
@@ -85,15 +114,12 @@ const WorldCanvas: React.FC<Props> = ({ simulation, speedMultiplier }) => {
         ctx.closePath();
     } else {
         ctx.beginPath();
-        if (isAquatic) {
-             ctx.ellipse(0, 0, size * 1.2, size * 0.6, 0, 0, Math.PI * 2);
-        } else {
-             ctx.ellipse(0, 0, size, size * 0.8, 0, 0, Math.PI * 2);
-        }
+        if (isAquatic) ctx.ellipse(0, 0, size * 1.2, size * 0.6, 0, 0, Math.PI * 2);
+        else ctx.ellipse(0, 0, size, size * 0.8, 0, 0, Math.PI * 2);
     }
     ctx.fill();
 
-    // 3. Draw Mouth/Mandibles
+    // 3. Mouth
     if (c.genome.mouthSize > 1) {
         ctx.fillStyle = '#000000aa';
         ctx.beginPath();
@@ -108,7 +134,7 @@ const WorldCanvas: React.FC<Props> = ({ simulation, speedMultiplier }) => {
         ctx.fill();
     }
     
-    // Gills indicator
+    // Gills
     if (isAquatic) {
         ctx.strokeStyle = '#ffffff55';
         ctx.lineWidth = 1;
@@ -120,7 +146,6 @@ const WorldCanvas: React.FC<Props> = ({ simulation, speedMultiplier }) => {
         ctx.stroke();
     }
 
-    // 4. Status Rings
     if (c.state === 'hunting' || c.state === 'fleeing') {
         ctx.strokeStyle = c.state === 'hunting' ? '#ef4444' : '#fbbf24';
         ctx.lineWidth = 1;
@@ -137,52 +162,108 @@ const WorldCanvas: React.FC<Props> = ({ simulation, speedMultiplier }) => {
     const ctx = canvasRef.current.getContext('2d');
     if (!ctx) return;
 
+    // 1. Simulation Steps
     for(let i=0; i<speedMultiplier; i++) simulation.update();
 
-    ctx.clearRect(0, 0, WORLD_WIDTH, WORLD_HEIGHT);
+    // 2. Camera Update
+    const SCROLL_SPEED = 20 / zoom; // Adjust scroll speed based on zoom
+    const cam = camera.current;
+    if (keysPressed.current.has('ArrowRight') || keysPressed.current.has('KeyD')) cam.x += SCROLL_SPEED;
+    if (keysPressed.current.has('ArrowLeft') || keysPressed.current.has('KeyA')) cam.x -= SCROLL_SPEED;
+    if (keysPressed.current.has('ArrowDown') || keysPressed.current.has('KeyS')) cam.y += SCROLL_SPEED;
+    if (keysPressed.current.has('ArrowUp') || keysPressed.current.has('KeyW')) cam.y -= SCROLL_SPEED;
+
+    // Calculate visible area in world units
+    const visibleW = viewport.width / zoom;
+    const visibleH = viewport.height / zoom;
+
+    // Clamp Camera
+    const maxScrollX = Math.max(0, WORLD_WIDTH - visibleW);
+    const maxScrollY = Math.max(0, WORLD_HEIGHT - visibleH);
+    cam.x = Math.max(0, Math.min(cam.x, maxScrollX));
+    cam.y = Math.max(0, Math.min(cam.y, maxScrollY));
+
+    // 3. Clear Viewport
+    ctx.clearRect(0, 0, viewport.width, viewport.height);
     
-    // --- Draw Biomes ---
+    // 4. Transform Scene
+    ctx.save();
+    ctx.scale(zoom, zoom);
+    ctx.translate(-cam.x, -cam.y);
+
+    // 5. Draw World Background
+    // Ocean
     const oceanGrad = ctx.createLinearGradient(0, 0, BIOME_WATER_WIDTH, 0);
     oceanGrad.addColorStop(0, '#1e3a8a'); 
     oceanGrad.addColorStop(1, '#3b82f6'); 
     ctx.fillStyle = oceanGrad;
     ctx.fillRect(0, 0, BIOME_WATER_WIDTH, WORLD_HEIGHT);
 
-    const forestEnd = BIOME_WATER_WIDTH + 300;
-    const forestGrad = ctx.createLinearGradient(BIOME_WATER_WIDTH, 0, forestEnd, 0);
+    // Forest
+    const forestStart = BIOME_WATER_WIDTH;
+    const forestEnd = forestStart + BIOME_FOREST_WIDTH;
+    const forestGrad = ctx.createLinearGradient(forestStart, 0, forestEnd, 0);
     forestGrad.addColorStop(0, '#eab308'); 
     forestGrad.addColorStop(0.1, '#064e3b'); 
     forestGrad.addColorStop(1, '#14532d');
     ctx.fillStyle = forestGrad;
-    ctx.fillRect(BIOME_WATER_WIDTH, 0, 300, WORLD_HEIGHT);
+    ctx.fillRect(forestStart, 0, BIOME_FOREST_WIDTH, WORLD_HEIGHT);
     
+    // Scrub
     ctx.fillStyle = '#78350f'; 
     ctx.fillRect(forestEnd, 0, WORLD_WIDTH - forestEnd, WORLD_HEIGHT);
 
+    // Shoreline Wave
     ctx.fillStyle = '#ffffff22';
-    const waveOffset = Math.sin(simulation.time * 0.05) * 5;
+    const waveOffset = Math.sin(simulation.time * 0.05) * 20;
     ctx.beginPath();
     ctx.moveTo(BIOME_WATER_WIDTH + waveOffset, 0);
     ctx.lineTo(BIOME_WATER_WIDTH + waveOffset, WORLD_HEIGHT);
-    ctx.lineTo(BIOME_WATER_WIDTH - 10 + waveOffset, WORLD_HEIGHT);
-    ctx.lineTo(BIOME_WATER_WIDTH - 10 + waveOffset, 0);
+    ctx.lineTo(BIOME_WATER_WIDTH - 40 + waveOffset, WORLD_HEIGHT);
+    ctx.lineTo(BIOME_WATER_WIDTH - 40 + waveOffset, 0);
     ctx.fill();
 
+    // Zone Labels
     ctx.fillStyle = '#ffffff33';
-    ctx.font = '20px sans-serif';
-    ctx.fillText("OCEAN", 20, 30);
-    ctx.fillText("JUNGLE", BIOME_WATER_WIDTH + 20, 30);
-    ctx.fillText("WASTELAND", forestEnd + 20, 30);
+    ctx.font = '80px sans-serif';
+    ctx.fillText("OCEAN", 100, 300);
+    ctx.fillText("JUNGLE", BIOME_WATER_WIDTH + 100, 300);
+    ctx.fillText("WASTELAND", forestEnd + 100, 300);
+
+    // 6. Draw Entities (Culling)
+    // We expand the render margin to account for zooming out/in
+    const renderMargin = 100;
+    const viewL = cam.x - renderMargin;
+    const viewR = cam.x + visibleW + renderMargin;
+    const viewT = cam.y - renderMargin;
+    const viewB = cam.y + visibleH + renderMargin;
 
     simulation.food.forEach(f => {
-      ctx.beginPath();
-      const r = 2 + (Math.sin(f.position.x * 0.1 + simulation.time * 0.01) + 1);
-      ctx.arc(f.position.x, f.position.y, r, 0, Math.PI * 2);
-      ctx.fillStyle = f.position.x < BIOME_WATER_WIDTH ? '#22d3ee' : '#4ade80';
-      ctx.fill();
+      if (f.position.x >= viewL && f.position.x <= viewR && f.position.y >= viewT && f.position.y <= viewB) {
+          ctx.beginPath();
+          const r = 2 + (Math.sin(f.position.x * 0.1 + simulation.time * 0.01) + 1);
+          ctx.arc(f.position.x, f.position.y, r, 0, Math.PI * 2);
+          ctx.fillStyle = f.position.x < BIOME_WATER_WIDTH ? '#22d3ee' : '#4ade80';
+          ctx.fill();
+      }
     });
 
-    simulation.critters.forEach(c => drawCritter(ctx, c, simulation.time));
+    simulation.critters.forEach(c => {
+        if (c.position.x >= viewL && c.position.x <= viewR && c.position.y >= viewT && c.position.y <= viewB) {
+            drawCritter(ctx, c, simulation.time);
+        }
+    });
+
+    ctx.restore();
+
+    // 7. HUD
+    ctx.fillStyle = '#00000088';
+    ctx.fillRect(10, 10, 160, 60);
+    ctx.fillStyle = '#fff';
+    ctx.font = '12px monospace';
+    ctx.fillText(`Pos: ${Math.round(cam.x)}, ${Math.round(cam.y)}`, 20, 30);
+    ctx.fillText(`Zoom: ${zoom.toFixed(2)}x`, 20, 45);
+    ctx.fillText(`World: ${WORLD_WIDTH}x${WORLD_HEIGHT}`, 20, 60);
 
     requestRef.current = requestAnimationFrame(animate);
   };
@@ -192,21 +273,89 @@ const WorldCanvas: React.FC<Props> = ({ simulation, speedMultiplier }) => {
     return () => {
       if (requestRef.current) cancelAnimationFrame(requestRef.current);
     };
-  }, [speedMultiplier]);
+  }, [speedMultiplier, viewport, zoom]);
 
-  // Use a wrapper div for aspect ratio management, but canvas fills it
   return (
-    <div className="w-full h-full bg-gray-900 flex items-center justify-center overflow-hidden relative">
+    <div ref={containerRef} className="w-full h-full bg-gray-900 relative overflow-hidden group">
         <canvas
             ref={canvasRef}
-            width={WORLD_WIDTH}
-            height={WORLD_HEIGHT}
-            className="block"
-            style={{ width: '100%', height: '100%', objectFit: 'contain' }}
+            width={viewport.width}
+            height={viewport.height}
+            className="block cursor-crosshair active:cursor-grabbing"
+            onWheel={handleWheel}
         />
-        <div className="absolute bottom-2 left-2 bg-black/60 text-white text-xs px-2 py-1 rounded pointer-events-none">
-           Entities: {simulation.critters.length} | Food: {simulation.food.length}
-        </div>
+        
+        {/* Toggle Controls Button */}
+        <button 
+            onClick={() => setShowControls(!showControls)}
+            className={`absolute bottom-4 right-4 p-3 rounded-full shadow-lg border border-gray-600 transition-all ${showControls ? 'bg-blue-600 text-white' : 'bg-gray-800 text-gray-400 hover:text-white'}`}
+            title="Toggle On-Screen Controls"
+        >
+            <Gamepad2 size={24} />
+        </button>
+
+        {/* On-Screen Controls Overlay */}
+        {showControls && (
+            <div className="absolute bottom-16 right-4 flex flex-col items-center gap-4 p-4 bg-gray-800/80 backdrop-blur rounded-xl border border-gray-700 shadow-2xl">
+                
+                {/* Zoom Controls */}
+                <div className="flex gap-2 mb-2 border-b border-gray-600 pb-2 w-full justify-center">
+                   <button 
+                       onClick={() => setZoom(z => Math.min(2.0, z + 0.1))}
+                       className="p-3 bg-gray-700 rounded-lg hover:bg-gray-600 active:bg-gray-500 transition"
+                       title="Zoom In"
+                   >
+                       <ZoomIn size={20} />
+                   </button>
+                   <button 
+                       onClick={() => setZoom(z => Math.max(0.1, z - 0.1))}
+                       className="p-3 bg-gray-700 rounded-lg hover:bg-gray-600 active:bg-gray-500 transition"
+                       title="Zoom Out"
+                   >
+                       <ZoomOut size={20} />
+                   </button>
+                </div>
+
+                {/* D-Pad */}
+                <button 
+                    onMouseDown={(e) => { keysPressed.current.add('ArrowUp'); }}
+                    onMouseUp={(e) => { keysPressed.current.delete('ArrowUp'); }}
+                    onMouseLeave={(e) => { keysPressed.current.delete('ArrowUp'); }}
+                    className="p-4 bg-gray-700 rounded-lg hover:bg-blue-600 active:bg-blue-700 transition"
+                >
+                    <ArrowUp size={24} />
+                </button>
+                <div className="flex gap-2">
+                    <button 
+                        onMouseDown={(e) => { keysPressed.current.add('ArrowLeft'); }}
+                        onMouseUp={(e) => { keysPressed.current.delete('ArrowLeft'); }}
+                        onMouseLeave={(e) => { keysPressed.current.delete('ArrowLeft'); }}
+                        className="p-4 bg-gray-700 rounded-lg hover:bg-blue-600 active:bg-blue-700 transition"
+                    >
+                        <ArrowLeft size={24} />
+                    </button>
+                    <button 
+                         onMouseDown={(e) => { keysPressed.current.add('ArrowDown'); }}
+                         onMouseUp={(e) => { keysPressed.current.delete('ArrowDown'); }}
+                         onMouseLeave={(e) => { keysPressed.current.delete('ArrowDown'); }}
+                        className="p-4 bg-gray-700 rounded-lg hover:bg-blue-600 active:bg-blue-700 transition"
+                    >
+                        <ArrowDown size={24} />
+                    </button>
+                    <button 
+                        onMouseDown={(e) => { keysPressed.current.add('ArrowRight'); }}
+                        onMouseUp={(e) => { keysPressed.current.delete('ArrowRight'); }}
+                        onMouseLeave={(e) => { keysPressed.current.delete('ArrowRight'); }}
+                        className="p-4 bg-gray-700 rounded-lg hover:bg-blue-600 active:bg-blue-700 transition"
+                    >
+                        <ArrowRight size={24} />
+                    </button>
+                </div>
+                <div className="text-[10px] text-gray-400 font-mono mt-1 text-center">
+                    Scroll to Zoom<br/>Arrows to Move
+                </div>
+            </div>
+        )}
     </div>
   );
 };
