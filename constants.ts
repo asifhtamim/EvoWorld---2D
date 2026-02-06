@@ -1,6 +1,11 @@
 export const WORLD_WIDTH = 4000;
 export const WORLD_HEIGHT = 4000;
 
+// Optimization Grid
+export const GRID_CELL_SIZE = 100;
+export const GRID_COLS = Math.ceil(WORLD_WIDTH / GRID_CELL_SIZE);
+export const GRID_ROWS = Math.ceil(WORLD_HEIGHT / GRID_CELL_SIZE);
+
 // Biome Config
 export const BIOME_WATER_WIDTH = 1400; // Left side is ocean
 export const BIOME_FOREST_WIDTH = 1000; // Middle section
@@ -10,22 +15,23 @@ export const BIOME_FOREST_FRICTION = 0.85;
 export const BIOME_SCRUB_FRICTION = 0.98;
 export const BIOME_WATER_DRAG = 0.92; 
 
-export const BIOME_WATER_GROWTH = 30.0; 
-export const BIOME_FOREST_GROWTH = 0.13; 
-export const BIOME_SCRUB_GROWTH = 0.039; 
+// Growth Rates - Explosively increased
+export const BIOME_WATER_GROWTH = 400.0; 
+export const BIOME_FOREST_GROWTH = 25.0; 
+export const BIOME_SCRUB_GROWTH = 8.0; 
 
-export const INITIAL_POPULATION = 20; // Increased start
-export const MAX_POPULATION = 800; // Increased cap for large world
-export const MAX_FOOD = 2500; // Increased food cap
+export const INITIAL_POPULATION = 60; // Start with a larger cohort
+export const MAX_POPULATION = 1500; // Higher population cap
+export const MAX_FOOD = 35000; // Massive food capacity
 
 // Energy Physics
 export const ENERGY_COST_MOVE_BASE = 0.02; 
 export const ENERGY_COST_PER_LIMB = 0.005; 
 export const ENERGY_COST_MOUTH_SIZE = 0.01;
 export const ENERGY_COST_EXIST = 0.02; 
-export const ENERGY_GAIN_FOOD = 70; 
+export const ENERGY_GAIN_FOOD = 100; // Increased nutritional value
 export const ENERGY_GAIN_MEAT_MULTIPLIER = 1.0; 
-export const STARTING_ENERGY = 120; 
+export const STARTING_ENERGY = 300; // "Packed lunch" for new critters
 export const SUFFOCATION_PENALTY = 0.5; 
 
 export const SPECIATION_THRESHOLD = 0.5; 

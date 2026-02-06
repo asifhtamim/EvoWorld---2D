@@ -7,11 +7,31 @@ export class SimulationEngine {
   species: Map<string, Species> = new Map();
   time: number = 0;
   
+  // Spatial Partitioning
+  foodGrid: Food[][] = [];
+  critterGrid: Critter[][] = [];
+
   private nextId = 0;
   private generateId() { return `ent_${this.nextId++}`; }
 
   constructor() {
+    this.initGrids();
     this.reset();
+  }
+
+  private initGrids() {
+      const totalCells = Constants.GRID_COLS * Constants.GRID_ROWS;
+      this.foodGrid = new Array(totalCells).fill(null).map(() => []);
+      this.critterGrid = new Array(totalCells).fill(null).map(() => []);
+  }
+
+  private getGridIndex(x: number, y: number): number {
+      const col = Math.floor(x / Constants.GRID_CELL_SIZE);
+      const row = Math.floor(y / Constants.GRID_CELL_SIZE);
+      // Clamp to bounds to be safe
+      const c = Math.max(0, Math.min(Constants.GRID_COLS - 1, col));
+      const r = Math.max(0, Math.min(Constants.GRID_ROWS - 1, row));
+      return c + r * Constants.GRID_COLS;
   }
 
   reset() {
@@ -19,6 +39,13 @@ export class SimulationEngine {
     this.food = [];
     this.species.clear();
     this.time = 0;
+    
+    // Clear grids
+    const totalCells = Constants.GRID_COLS * Constants.GRID_ROWS;
+    for(let i=0; i<totalCells; i++) {
+        this.foodGrid[i] = [];
+        this.critterGrid[i] = [];
+    }
 
     const rootSpeciesId = 'species_0';
     this.species.set(rootSpeciesId, {
@@ -42,14 +69,15 @@ export class SimulationEngine {
         );
     }
   
-    // Initial Food Scatter (Everywhere, to tempt them onto land)
-    for (let i = 0; i < 80; i++) {
+    // Initial Food Scatter
+    for (let i = 0; i < 5000; i++) {
         this.spawnRandomFood();
     }
   }
 
   private spawnCritter(x: number, y: number, speciesId: string, genome: Genome) {
-    this.critters.push({
+    const idx = this.getGridIndex(x, y);
+    const critter: Critter = {
       id: this.generateId(),
       speciesId,
       position: { x, y },
@@ -59,74 +87,92 @@ export class SimulationEngine {
       genome: { ...genome },
       state: 'wandering',
       targetId: null,
-      heading: Math.random() * Math.PI * 2
-    });
+      heading: Math.random() * Math.PI * 2,
+      gridIndex: idx
+    };
+    
+    this.critters.push(critter);
+    this.critterGrid[idx].push(critter);
 
     const spec = this.species.get(speciesId);
     if (spec) spec.count++;
   }
 
   private spawnRandomFood() {
-     this.food.push({
+     const x = Math.random() * Constants.WORLD_WIDTH;
+     const y = Math.random() * Constants.WORLD_HEIGHT;
+     const idx = this.getGridIndex(x, y);
+     
+     const f: Food = {
       id: this.generateId(),
-      position: {
-        x: Math.random() * Constants.WORLD_WIDTH,
-        y: Math.random() * Constants.WORLD_HEIGHT
-      },
+      position: { x, y },
       energyValue: Constants.ENERGY_GAIN_FOOD,
-      age: 0
-    });
+      age: 0,
+      gridIndex: idx
+    };
+
+    this.food.push(f);
+    this.foodGrid[idx].push(f);
   }
 
   private spawnFoodInZone(minX: number, maxX: number) {
-      this.food.push({
+      const x = minX + Math.random() * (maxX - minX);
+      const y = Math.random() * Constants.WORLD_HEIGHT;
+      const idx = this.getGridIndex(x, y);
+
+      const f: Food = {
           id: this.generateId(),
-          position: {
-              x: minX + Math.random() * (maxX - minX),
-              y: Math.random() * Constants.WORLD_HEIGHT
-          },
+          position: { x, y },
           energyValue: Constants.ENERGY_GAIN_FOOD,
-          age: 0
-      });
+          age: 0,
+          gridIndex: idx
+      };
+
+      this.food.push(f);
+      this.foodGrid[idx].push(f);
   }
 
   // --- Plant Cellular Automata ---
   private growPlants() {
-    // 1. Random "Wind/Current" Spawns
-    if (Math.random() < 0.1) this.spawnRandomFood();
+    // 1. Ambient Spawns
+    for (let i = 0; i < 10; i++) {
+        if (this.food.length < Constants.MAX_FOOD) this.spawnRandomFood();
+    }
 
-    // 1b. Beach Bait: Constant small chance to spawn food in the transition zone (220-280)
-    // This lures creatures to the edge.
-    // Adjusted transition zone for larger world map
-    const beachStart = Constants.BIOME_WATER_WIDTH - 30;
-    const beachEnd = Constants.BIOME_WATER_WIDTH + 50;
-    if (Math.random() < 0.08) {
+    if (Math.random() < 0.5) {
+         const scrubStart = Constants.BIOME_WATER_WIDTH + Constants.BIOME_FOREST_WIDTH;
+         this.spawnFoodInZone(scrubStart, Constants.WORLD_WIDTH);
+    }
+
+    const beachStart = Constants.BIOME_WATER_WIDTH - 50;
+    const beachEnd = Constants.BIOME_WATER_WIDTH + 100;
+    if (Math.random() < 0.3) {
         this.spawnFoodInZone(beachStart, beachEnd);
     }
 
     if (this.food.length >= Constants.MAX_FOOD) return;
 
-    // 1c. Ocean Floor Floor (Safety Net)
-    // If water food is critically low, force spawn to prevent extinction.
-    // Increased spawn count to 3 and widened the range (5 to Width-5) to help scattered creatures.
-    const oceanFoodCount = this.food.reduce((acc, f) => (f.position.x < Constants.BIOME_WATER_WIDTH ? acc + 1 : acc), 0);
-    if (oceanFoodCount < 20) {
-        this.spawnFoodInZone(5, Constants.BIOME_WATER_WIDTH - 5);
-        this.spawnFoodInZone(5, Constants.BIOME_WATER_WIDTH - 5);
-        this.spawnFoodInZone(5, Constants.BIOME_WATER_WIDTH - 5);
+    // Safety net
+    if (this.food.length < 5000) {
+        // Only check ocean if significantly below cap to avoid iteration
+        const oceanFoodCount = this.food.reduce((acc, f) => (f.position.x < Constants.BIOME_WATER_WIDTH ? acc + 1 : acc), 0);
+        if (oceanFoodCount < 500) {
+            for(let i=0; i<30; i++) this.spawnFoodInZone(5, Constants.BIOME_WATER_WIDTH - 5);
+        }
     }
 
     // 2. Existing plants spread seeds
-    const subsetSize = Math.min(this.food.length, 30);
+    const subsetSize = Math.min(this.food.length, 50);
+    
     for(let i=0; i<subsetSize; i++) {
-        // Pick a random parent
+        if (this.food.length >= Constants.MAX_FOOD) break;
+
         const parent = this.food[Math.floor(Math.random() * this.food.length)];
         
         let growthChance = 0.01;
 
-        // Transition Zone (Beach) Logic: High growth to sustain beach-goers
         if (parent.position.x > beachStart && parent.position.x < beachEnd) {
-            growthChance = 0.40; // High growth rate on the shoreline
+            growthChance = Constants.BIOME_FOREST_GROWTH * 2; 
         } else if (parent.position.x < Constants.BIOME_WATER_WIDTH) {
             growthChance = Constants.BIOME_WATER_GROWTH;
         } else if (parent.position.x < Constants.BIOME_WATER_WIDTH + Constants.BIOME_FOREST_WIDTH) {
@@ -135,35 +181,34 @@ export class SimulationEngine {
             growthChance = Constants.BIOME_SCRUB_GROWTH;
         }
 
-        // Handle growthChance > 1 (e.g. 30.0 for water)
-        // Guaranteed spawns = floor(chance). Probabilistic remainder = chance % 1
         const guaranteedSpawns = Math.floor(growthChance);
         const remainderChance = growthChance % 1;
         
-        const spawnsToAttempt = guaranteedSpawns + (Math.random() < remainderChance ? 1 : 0);
+        let spawnsToAttempt = Math.min(50, guaranteedSpawns + (Math.random() < remainderChance ? 1 : 0));
 
         for(let k = 0; k < spawnsToAttempt; k++) {
-            // Stop if we hit cap mid-loop
             if (this.food.length >= Constants.MAX_FOOD) break;
 
             const angle = Math.random() * Math.PI * 2;
-            
-            // Distribute widely in water to avoid clumps (as requested)
-            let dist = 10 + Math.random() * 40;
+            let dist = 15 + Math.random() * 80;
             if (parent.position.x < Constants.BIOME_WATER_WIDTH) {
-                dist = 20 + Math.random() * 200; // MUCH wider spread for water
+                dist = 20 + Math.random() * 350; 
             }
 
             const newX = parent.position.x + Math.cos(angle) * dist;
             const newY = parent.position.y + Math.sin(angle) * dist;
 
             if (newX > 0 && newX < Constants.WORLD_WIDTH && newY > 0 && newY < Constants.WORLD_HEIGHT) {
-                this.food.push({
+                const idx = this.getGridIndex(newX, newY);
+                const f: Food = {
                     id: this.generateId(),
                     position: { x: newX, y: newY },
                     energyValue: Constants.ENERGY_GAIN_FOOD,
-                    age: 0
-                });
+                    age: 0,
+                    gridIndex: idx
+                };
+                this.food.push(f);
+                this.foodGrid[idx].push(f);
             }
         }
     }
@@ -174,6 +219,7 @@ export class SimulationEngine {
     this.time++;
     this.growPlants();
 
+    // Critter Update Loop
     for (let i = this.critters.length - 1; i >= 0; i--) {
       const critter = this.critters[i];
       critter.age++;
@@ -189,34 +235,62 @@ export class SimulationEngine {
       }
     }
 
+    // Cleanup Eaten Food efficiently
+    // We mark eaten food by setting energyValue to 0 (or -1) during decideAction
+    // Then filter once per tick.
+    if (this.time % 5 === 0) { // Optimization: Only shrink array every 5 ticks
+        this.food = this.food.filter(f => f.energyValue > 0);
+    } else {
+        // Quick pass if we want, but array.filter is expensive on 35k items.
+        // Actually, let's filter only when necessary, or just skip rendering dead food.
+        // But for memory management, we must remove.
+        // Let's stick to doing it every frame but optimized:
+        // Swapping is tricky with grid.
+        // Simple Filter is robust.
+        this.food = this.food.filter(f => f.energyValue > 0);
+    }
+
     this.species.forEach(s => {
       if (s.count === 0 && !s.extinct) s.extinct = true;
     });
+  }
+
+  // Helpers for Spatial Query
+  private getNeighborIndices(centerIdx: number): number[] {
+    const indices = [centerIdx];
+    const col = centerIdx % Constants.GRID_COLS;
+    const row = Math.floor(centerIdx / Constants.GRID_COLS);
+
+    for (let dy = -1; dy <= 1; dy++) {
+        for (let dx = -1; dx <= 1; dx++) {
+            if (dx === 0 && dy === 0) continue;
+            const nc = col + dx;
+            const nr = row + dy;
+            if (nc >= 0 && nc < Constants.GRID_COLS && nr >= 0 && nr < Constants.GRID_ROWS) {
+                indices.push(nc + nr * Constants.GRID_COLS);
+            }
+        }
+    }
+    return indices;
   }
 
   private calculateMetabolism(critter: Critter) {
       const g = critter.genome;
       const inWater = critter.position.x < Constants.BIOME_WATER_WIDTH;
       
-      // 1. Biome Check & Suffocation
       const envVal = inWater ? 0.0 : 1.0;
       const mismatch = Math.abs(g.amphibious - envVal);
-      
       let suffocation = 0;
       if (mismatch > 0.3) {
           suffocation = (mismatch - 0.3) * Constants.SUFFOCATION_PENALTY;
       }
       
-      // 2. Base Costs
       const limbCost = g.limbCount * Constants.ENERGY_COST_PER_LIMB;
       const mouthCost = g.mouthSize * Constants.ENERGY_COST_MOUTH_SIZE;
       const sizeCost = (g.size * g.size) * 0.005;
-      
       const speed = Math.sqrt(critter.velocity.x**2 + critter.velocity.y**2);
       
-      // 3. Movement Efficiency based on Morphology & Biome
       let efficiency = 1.0;
-      
       if (inWater) {
           if (g.amphibious > 0.5) efficiency = 0.2; 
           if (g.amphibious < 0.5 && g.limbCount > 0) efficiency *= 1.2;
@@ -226,7 +300,6 @@ export class SimulationEngine {
       }
 
       const moveCost = (speed * (g.size * 0.1) * Constants.ENERGY_COST_MOVE_BASE) / efficiency;
-
       critter.energy -= (Constants.ENERGY_COST_EXIST + limbCost + mouthCost + moveCost + sizeCost + suffocation);
   }
 
@@ -240,7 +313,6 @@ export class SimulationEngine {
   private decideAction(critter: Critter) {
     const isCarnivore = critter.genome.diet > 0.5;
 
-    // Herbivores flee from carnivores
     if (!isCarnivore) {
         const threat = this.findNearestPredator(critter);
         if (threat) {
@@ -250,10 +322,7 @@ export class SimulationEngine {
         }
     }
 
-    // Reproduction Check (Treating creature as a pair unit)
     if (critter.energy > critter.genome.reproThreshold) {
-        // Must have some maturity or cooldown to prevent instant explosions? 
-        // Energy cost handles cooldown naturally.
         this.reproduce(critter);
         return;
     }
@@ -268,13 +337,20 @@ export class SimulationEngine {
   private findNearestPredator(critter: Critter): Critter | null {
       let nearest: Critter | null = null;
       let minDist = Infinity;
-      for (const other of this.critters) {
-          if (other.id === critter.id) continue;
-          if (other.genome.diet > 0.5 && other.genome.size >= critter.genome.size) {
-              const d = this.dist(critter.position, other.position);
-              if (d < critter.genome.senseRadius && d < minDist) {
-                  minDist = d;
-                  nearest = other;
+      
+      // Optimization: Check only local grid cells
+      const indices = this.getNeighborIndices(critter.gridIndex);
+
+      for (const idx of indices) {
+          const cell = this.critterGrid[idx];
+          for (const other of cell) {
+              if (other.id === critter.id) continue;
+              if (other.genome.diet > 0.5 && other.genome.size >= critter.genome.size) {
+                  const d = this.dist(critter.position, other.position);
+                  if (d < critter.genome.senseRadius && d < minDist) {
+                      minDist = d;
+                      nearest = other;
+                  }
               }
           }
       }
@@ -284,20 +360,25 @@ export class SimulationEngine {
   private huntPrey(critter: Critter) {
       let nearestPrey: Critter | null = null;
       let minDist = Infinity;
+      
+      // Optimization: Grid Lookup
+      const indices = this.getNeighborIndices(critter.gridIndex);
 
-      for (const other of this.critters) {
-          if (other.id === critter.id) continue;
-          if (other.speciesId === critter.speciesId) continue; 
+      for (const idx of indices) {
+          const cell = this.critterGrid[idx];
+          for (const other of cell) {
+             if (other.id === critter.id) continue;
+             if (other.speciesId === critter.speciesId) continue; 
 
-          // Carnivore logic
-          const combatAdvantage = (critter.genome.size + critter.genome.mouthSize * 2) > (other.genome.size + (other.genome.diet > 0.5 ? other.genome.mouthSize : 0));
+             const combatAdvantage = (critter.genome.size + critter.genome.mouthSize * 2) > (other.genome.size + (other.genome.diet > 0.5 ? other.genome.mouthSize : 0));
 
-          if (combatAdvantage) {
-              const d = this.dist(critter.position, other.position);
-              if (d < critter.genome.senseRadius && d < minDist) {
-                  minDist = d;
-                  nearestPrey = other;
-              }
+             if (combatAdvantage) {
+                const d = this.dist(critter.position, other.position);
+                if (d < critter.genome.senseRadius && d < minDist) {
+                    minDist = d;
+                    nearestPrey = other;
+                }
+             }
           }
       }
 
@@ -308,8 +389,12 @@ export class SimulationEngine {
           
           if (minDist < critter.genome.size + nearestPrey.genome.size) {
               critter.energy += nearestPrey.energy * Constants.ENERGY_GAIN_MEAT_MULTIPLIER + (nearestPrey.genome.size * 10);
+              
+              // Kill prey (Find index in master list - this is slow O(N), but hunting is rarer than grazing)
+              // Better: Mark as dead and cleanup.
               const preyIndex = this.critters.findIndex(c => c.id === nearestPrey!.id);
               if (preyIndex !== -1) this.killCritter(preyIndex);
+              
               critter.targetId = null;
           }
       } else {
@@ -321,13 +406,23 @@ export class SimulationEngine {
   private seekFood(critter: Critter) {
     let nearestFood: Food | null = null;
     let minDist = Infinity;
+    
+    // Optimization: Check only local grid cells for food
+    const indices = this.getNeighborIndices(critter.gridIndex);
 
-    for (const f of this.food) {
-      const d = this.dist(critter.position, f.position);
-      if (d < critter.genome.senseRadius && d < minDist) {
-        minDist = d;
-        nearestFood = f;
-      }
+    for (const idx of indices) {
+        const cell = this.foodGrid[idx];
+        // Reverse iterate to allow removal if we wanted, but we're just reading
+        for (let i = 0; i < cell.length; i++) {
+            const f = cell[i];
+            if (f.energyValue <= 0) continue; // Already eaten
+
+            const d = this.dist(critter.position, f.position);
+            if (d < critter.genome.senseRadius && d < minDist) {
+                minDist = d;
+                nearestFood = f;
+            }
+        }
     }
 
     if (nearestFood) {
@@ -338,7 +433,13 @@ export class SimulationEngine {
       const eatRange = critter.genome.size + (critter.genome.mouthSize / 2);
       if (minDist < eatRange) {
         critter.energy += nearestFood.energyValue;
-        this.food = this.food.filter(f => f.id !== nearestFood!.id);
+        nearestFood.energyValue = 0; // Mark as eaten
+        
+        // Remove from Grid immediately to prevent others eating it this tick
+        const cell = this.foodGrid[nearestFood.gridIndex];
+        const fIdx = cell.indexOf(nearestFood);
+        if (fIdx > -1) cell.splice(fIdx, 1);
+
         critter.targetId = null;
       }
     } else {
@@ -350,9 +451,7 @@ export class SimulationEngine {
   private reproduce(parent: Critter) {
     if (this.critters.length >= Constants.MAX_POPULATION) return;
 
-    // Single parent reproduction (Pair splitting)
     const newGenome: Genome = { ...parent.genome };
-
     let mutationMetric = 0;
     const C = Constants.MUTATION_CONFIG;
 
@@ -370,9 +469,8 @@ export class SimulationEngine {
     newGenome.senseRadius = mutate(newGenome.senseRadius, C.SENSE, 20);
     newGenome.limbLength = mutate(newGenome.limbLength, C.LIMB_LENGTH, 1);
     newGenome.mouthSize = mutate(newGenome.mouthSize, C.MOUTH_SIZE, 1);
-    newGenome.reproThreshold = mutate(newGenome.reproThreshold, C.REPRO_THRESHOLD, 50); // Mutate reproduction rate
+    newGenome.reproThreshold = mutate(newGenome.reproThreshold, C.REPRO_THRESHOLD, 50); 
     
-    // Amphibious Mutation
     if (Math.random() < C.AMPHIBIOUS.RATE) {
          const change = (Math.random() * 2 - 1) * C.AMPHIBIOUS.VARIANCE;
          newGenome.amphibious = Math.max(0, Math.min(1, newGenome.amphibious + change));
@@ -391,7 +489,6 @@ export class SimulationEngine {
         mutationMetric += Math.abs(change) * 2;
     }
 
-    // Color Logic
     let h = 200, s = 70, l = 50;
     const hslMatch = parent.genome.color.match(/hsl\((\d+),\s*(\d+)%,\s*(\d+)%\)/);
     if (hslMatch) {
@@ -421,9 +518,8 @@ export class SimulationEngine {
     }
     newGenome.color = `hsl(${Math.round(h)}, ${s}%, ${l}%)`;
 
-    // Energy Costs
-    const babyEnergy = parent.energy * 0.4; // 40% to baby
-    parent.energy -= (parent.energy * 0.5); // 50% cost (10% loss to entropy)
+    const babyEnergy = parent.energy * 0.4; 
+    parent.energy -= (parent.energy * 0.5); 
 
     this.spawnCritter(
         parent.position.x + (Math.random() * 20 - 10),
@@ -432,7 +528,6 @@ export class SimulationEngine {
         newGenome
     );
 
-    // Apply baby energy
     const baby = this.critters[this.critters.length - 1];
     baby.energy = babyEnergy;
   }
@@ -451,7 +546,6 @@ export class SimulationEngine {
       const inWater = critter.position.x < Constants.BIOME_WATER_WIDTH;
       let turnSpeed = 0.05;
 
-      // Specialized Turning
       if (inWater) {
           turnSpeed += (critter.genome.limbCount * 0.03);
           if (critter.genome.amphibious > 0.6) turnSpeed *= 0.5; 
@@ -517,7 +611,6 @@ export class SimulationEngine {
     const inWater = critter.position.x < Constants.BIOME_WATER_WIDTH;
     let friction = inWater ? Constants.BIOME_WATER_DRAG : Constants.BIOME_FOREST_FRICTION;
     
-    // Forest width check
     if (!inWater && critter.position.x > Constants.BIOME_WATER_WIDTH + Constants.BIOME_FOREST_WIDTH) {
         friction = Constants.BIOME_SCRUB_FRICTION;
     }
@@ -527,6 +620,20 @@ export class SimulationEngine {
 
     critter.position.x += critter.velocity.x;
     critter.position.y += critter.velocity.y;
+
+    // Grid Update
+    // Check if grid cell changed
+    const newGridIndex = this.getGridIndex(critter.position.x, critter.position.y);
+    if (newGridIndex !== critter.gridIndex) {
+        // Remove from old cell
+        const oldCell = this.critterGrid[critter.gridIndex];
+        const idx = oldCell.indexOf(critter);
+        if (idx > -1) oldCell.splice(idx, 1);
+
+        // Add to new cell
+        critter.gridIndex = newGridIndex;
+        this.critterGrid[newGridIndex].push(critter);
+    }
   }
 
   private enforceBoundaries(critter: Critter) {
@@ -539,6 +646,12 @@ export class SimulationEngine {
 
   private killCritter(index: number) {
     const c = this.critters[index];
+    
+    // Remove from grid
+    const cell = this.critterGrid[c.gridIndex];
+    const idx = cell.indexOf(c);
+    if (idx > -1) cell.splice(idx, 1);
+
     const s = this.species.get(c.speciesId);
     if (s) s.count--;
     this.critters.splice(index, 1);

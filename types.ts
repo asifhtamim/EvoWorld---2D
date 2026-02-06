@@ -40,6 +40,7 @@ export interface Critter {
   state: 'wandering' | 'seeking_food' | 'fleeing' | 'hunting';
   targetId: string | null;
   heading: number; // For smooth rotation
+  gridIndex: number; // Optimization: Spatial grid index
 }
 
 export interface Food {
@@ -47,6 +48,7 @@ export interface Food {
   position: Vector2;
   energyValue: number;
   age: number; // For growth mechanics
+  gridIndex: number; // Optimization: Spatial grid index
 }
 
 export interface SimulationStats {

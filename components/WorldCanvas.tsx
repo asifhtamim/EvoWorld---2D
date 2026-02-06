@@ -1,6 +1,6 @@
 import React, { useEffect, useRef, useState } from 'react';
 import { SimulationEngine } from '../services/simulationEngine';
-import { WORLD_WIDTH, WORLD_HEIGHT, BIOME_WATER_WIDTH, BIOME_FOREST_WIDTH } from '../constants';
+import { WORLD_WIDTH, WORLD_HEIGHT, BIOME_WATER_WIDTH, BIOME_FOREST_WIDTH, GRID_CELL_SIZE, GRID_COLS, GRID_ROWS } from '../constants';
 import { Gamepad2, ArrowUp, ArrowDown, ArrowLeft, ArrowRight, ZoomIn, ZoomOut } from 'lucide-react';
 
 interface Props {
@@ -19,7 +19,7 @@ const WorldCanvas: React.FC<Props> = ({ simulation, speedMultiplier }) => {
   
   const [viewport, setViewport] = useState({ width: 800, height: 600 });
   const [showControls, setShowControls] = useState(false);
-  const [zoom, setZoom] = useState(0.6); // Default zoomed out to see more area
+  const [zoom, setZoom] = useState(0.6); 
 
   // Resize Observer
   useEffect(() => {
@@ -46,7 +46,6 @@ const WorldCanvas: React.FC<Props> = ({ simulation, speedMultiplier }) => {
     }
   }, []);
 
-  // Wheel Zoom Listener
   const handleWheel = (e: React.WheelEvent) => {
       e.preventDefault();
       const delta = -e.deltaY * 0.001;
@@ -166,40 +165,35 @@ const WorldCanvas: React.FC<Props> = ({ simulation, speedMultiplier }) => {
     for(let i=0; i<speedMultiplier; i++) simulation.update();
 
     // 2. Camera Update
-    const SCROLL_SPEED = 20 / zoom; // Adjust scroll speed based on zoom
+    const SCROLL_SPEED = 20 / zoom; 
     const cam = camera.current;
     if (keysPressed.current.has('ArrowRight') || keysPressed.current.has('KeyD')) cam.x += SCROLL_SPEED;
     if (keysPressed.current.has('ArrowLeft') || keysPressed.current.has('KeyA')) cam.x -= SCROLL_SPEED;
     if (keysPressed.current.has('ArrowDown') || keysPressed.current.has('KeyS')) cam.y += SCROLL_SPEED;
     if (keysPressed.current.has('ArrowUp') || keysPressed.current.has('KeyW')) cam.y -= SCROLL_SPEED;
 
-    // Calculate visible area in world units
     const visibleW = viewport.width / zoom;
     const visibleH = viewport.height / zoom;
 
-    // Clamp Camera
     const maxScrollX = Math.max(0, WORLD_WIDTH - visibleW);
     const maxScrollY = Math.max(0, WORLD_HEIGHT - visibleH);
     cam.x = Math.max(0, Math.min(cam.x, maxScrollX));
     cam.y = Math.max(0, Math.min(cam.y, maxScrollY));
 
-    // 3. Clear Viewport
+    // 3. Render
     ctx.clearRect(0, 0, viewport.width, viewport.height);
     
-    // 4. Transform Scene
     ctx.save();
     ctx.scale(zoom, zoom);
     ctx.translate(-cam.x, -cam.y);
 
-    // 5. Draw World Background
-    // Ocean
+    // Background
     const oceanGrad = ctx.createLinearGradient(0, 0, BIOME_WATER_WIDTH, 0);
     oceanGrad.addColorStop(0, '#1e3a8a'); 
     oceanGrad.addColorStop(1, '#3b82f6'); 
     ctx.fillStyle = oceanGrad;
     ctx.fillRect(0, 0, BIOME_WATER_WIDTH, WORLD_HEIGHT);
 
-    // Forest
     const forestStart = BIOME_WATER_WIDTH;
     const forestEnd = forestStart + BIOME_FOREST_WIDTH;
     const forestGrad = ctx.createLinearGradient(forestStart, 0, forestEnd, 0);
@@ -209,11 +203,9 @@ const WorldCanvas: React.FC<Props> = ({ simulation, speedMultiplier }) => {
     ctx.fillStyle = forestGrad;
     ctx.fillRect(forestStart, 0, BIOME_FOREST_WIDTH, WORLD_HEIGHT);
     
-    // Scrub
     ctx.fillStyle = '#78350f'; 
     ctx.fillRect(forestEnd, 0, WORLD_WIDTH - forestEnd, WORLD_HEIGHT);
 
-    // Shoreline Wave
     ctx.fillStyle = '#ffffff22';
     const waveOffset = Math.sin(simulation.time * 0.05) * 20;
     ctx.beginPath();
@@ -223,47 +215,64 @@ const WorldCanvas: React.FC<Props> = ({ simulation, speedMultiplier }) => {
     ctx.lineTo(BIOME_WATER_WIDTH - 40 + waveOffset, 0);
     ctx.fill();
 
-    // Zone Labels
     ctx.fillStyle = '#ffffff33';
     ctx.font = '80px sans-serif';
     ctx.fillText("OCEAN", 100, 300);
     ctx.fillText("JUNGLE", BIOME_WATER_WIDTH + 100, 300);
     ctx.fillText("WASTELAND", forestEnd + 100, 300);
 
-    // 6. Draw Entities (Culling)
-    // We expand the render margin to account for zooming out/in
-    const renderMargin = 100;
-    const viewL = cam.x - renderMargin;
-    const viewR = cam.x + visibleW + renderMargin;
-    const viewT = cam.y - renderMargin;
-    const viewB = cam.y + visibleH + renderMargin;
+    // 4. Optimized Entity Rendering
+    // Determine visible grid cells
+    const startCol = Math.floor(Math.max(0, cam.x) / GRID_CELL_SIZE);
+    const endCol = Math.ceil(Math.min(WORLD_WIDTH, cam.x + visibleW) / GRID_CELL_SIZE);
+    const startRow = Math.floor(Math.max(0, cam.y) / GRID_CELL_SIZE);
+    const endRow = Math.ceil(Math.min(WORLD_HEIGHT, cam.y + visibleH) / GRID_CELL_SIZE);
 
-    simulation.food.forEach(f => {
-      if (f.position.x >= viewL && f.position.x <= viewR && f.position.y >= viewT && f.position.y <= viewB) {
-          ctx.beginPath();
-          const r = 2 + (Math.sin(f.position.x * 0.1 + simulation.time * 0.01) + 1);
-          ctx.arc(f.position.x, f.position.y, r, 0, Math.PI * 2);
-          ctx.fillStyle = f.position.x < BIOME_WATER_WIDTH ? '#22d3ee' : '#4ade80';
-          ctx.fill();
-      }
-    });
-
-    simulation.critters.forEach(c => {
-        if (c.position.x >= viewL && c.position.x <= viewR && c.position.y >= viewT && c.position.y <= viewB) {
-            drawCritter(ctx, c, simulation.time);
+    // Render Food (Use simple rectangles for speed with 35k items)
+    // Only render food if zoom is close enough or use simplified render
+    if (zoom > 0.2) {
+        for (let r = startRow; r < endRow; r++) {
+            for (let c = startCol; c < endCol; c++) {
+                const idx = c + r * GRID_COLS;
+                if (idx < simulation.foodGrid.length) {
+                    const cell = simulation.foodGrid[idx];
+                    for (let k = 0; k < cell.length; k++) {
+                        const f = cell[k];
+                        // Skip if already eaten (zero energy) but not yet cleaned up
+                        if (f.energyValue <= 0) continue;
+                        
+                        ctx.fillStyle = f.position.x < BIOME_WATER_WIDTH ? '#22d3ee' : '#4ade80';
+                        // Using fillRect is faster than arc for thousands of items
+                        ctx.fillRect(f.position.x - 2, f.position.y - 2, 4, 4);
+                    }
+                }
+            }
         }
-    });
+    }
+
+    // Render Critters
+    for (let r = startRow; r < endRow; r++) {
+        for (let c = startCol; c < endCol; c++) {
+            const idx = c + r * GRID_COLS;
+            if (idx < simulation.critterGrid.length) {
+                const cell = simulation.critterGrid[idx];
+                for (let k = 0; k < cell.length; k++) {
+                    drawCritter(ctx, cell[k], simulation.time);
+                }
+            }
+        }
+    }
 
     ctx.restore();
 
-    // 7. HUD
+    // HUD
     ctx.fillStyle = '#00000088';
     ctx.fillRect(10, 10, 160, 60);
     ctx.fillStyle = '#fff';
     ctx.font = '12px monospace';
     ctx.fillText(`Pos: ${Math.round(cam.x)}, ${Math.round(cam.y)}`, 20, 30);
     ctx.fillText(`Zoom: ${zoom.toFixed(2)}x`, 20, 45);
-    ctx.fillText(`World: ${WORLD_WIDTH}x${WORLD_HEIGHT}`, 20, 60);
+    ctx.fillText(`Grid Visible: ${(endCol-startCol) * (endRow-startRow)}`, 20, 60);
 
     requestRef.current = requestAnimationFrame(animate);
   };
