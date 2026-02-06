@@ -1,0 +1,5 @@
+{
+  "name": "EvoWorld 2D",
+  "description": "A finite 2D ecosystem simulation where species evolve, branch, and compete for survival in real-time.",
+  "requestFramePermissions": []
+}
