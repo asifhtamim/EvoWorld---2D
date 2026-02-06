@@ -1,4 +1,4 @@
-import React, { useEffect, useRef } from 'react';
+import React, { useEffect, useRef, useState } from 'react';
 import * as d3 from 'd3';
 import { Species, TreeNode } from '../types';
 
@@ -7,18 +7,45 @@ interface Props {
 }
 
 const SpeciesTree: React.FC<Props> = ({ speciesMap }) => {
+  const containerRef = useRef<HTMLDivElement>(null);
   const svgRef = useRef<SVGSVGElement>(null);
+  const [dimensions, setDimensions] = useState({ width: 400, height: 300 });
 
+  // Handle Resize using ResizeObserver
   useEffect(() => {
-    if (!svgRef.current) return;
+    if (!containerRef.current) return;
+
+    const resizeObserver = new ResizeObserver((entries) => {
+      for (const entry of entries) {
+        if (entry.contentBoxSize) {
+          // Firefox implements `contentBoxSize` as a single content rect, rather than an array
+          const contentBoxSize = Array.isArray(entry.contentBoxSize) ? entry.contentBoxSize[0] : entry.contentBoxSize;
+          setDimensions({
+            width: contentBoxSize.inlineSize,
+            height: contentBoxSize.blockSize,
+          });
+        } else {
+            setDimensions({
+                width: entry.contentRect.width,
+                height: entry.contentRect.height,
+            });
+        }
+      }
+    });
+
+    resizeObserver.observe(containerRef.current);
+    return () => resizeObserver.disconnect();
+  }, []);
+
+  // Handle Draw
+  useEffect(() => {
+    if (!svgRef.current || speciesMap.size === 0) return;
     
     // 1. Build Hierarchy Data
     const buildTree = (): TreeNode | null => {
-        // Find roots (no parents)
         const roots: Species[] = [];
         const map = new Map<string, TreeNode>();
         
-        // Create nodes
         speciesMap.forEach(s => {
             map.set(s.id, { 
                 name: s.name, 
@@ -28,7 +55,6 @@ const SpeciesTree: React.FC<Props> = ({ speciesMap }) => {
             if (!s.parentId) roots.push(s);
         });
 
-        // Link children
         speciesMap.forEach(s => {
             if (s.parentId) {
                 const parent = map.get(s.parentId);
@@ -40,7 +66,6 @@ const SpeciesTree: React.FC<Props> = ({ speciesMap }) => {
         });
 
         if (roots.length === 0) return null;
-        // Assuming single root for now ("Primus")
         return map.get(roots[0].id) || null;
     };
 
@@ -48,16 +73,19 @@ const SpeciesTree: React.FC<Props> = ({ speciesMap }) => {
     if (!data) return;
 
     // 2. D3 Render
-    const width = 400;
-    const height = 300;
+    const { width, height } = dimensions;
     const svg = d3.select(svgRef.current);
     svg.selectAll("*").remove();
 
+    if (width === 0 || height === 0) return;
+
     const root = d3.hierarchy(data);
-    const treeLayout = d3.tree<TreeNode>().size([height - 40, width - 100]);
+    
+    // Adjust layout size 
+    const treeLayout = d3.tree<TreeNode>().size([height - 60, width - 120]);
     treeLayout(root);
 
-    const g = svg.append("g").attr("transform", "translate(40,20)");
+    const g = svg.append("g").attr("transform", "translate(60,30)");
 
     // Links
     g.selectAll(".link")
@@ -80,25 +108,25 @@ const SpeciesTree: React.FC<Props> = ({ speciesMap }) => {
       .attr("transform", (d: any) => `translate(${d.y},${d.x})`);
 
     node.append("circle")
-      .attr("r", (d: any) => d.data.attributes.count > 0 ? 5 + (d.data.attributes.count / 5) : 3)
+      .attr("r", (d: any) => d.data.attributes.count > 0 ? 5 + (d.data.attributes.count / 3) : 3)
       .attr("fill", (d: any) => d.data.attributes.extinct ? "#333" : d.data.attributes.color)
       .attr("stroke", "#fff")
       .attr("stroke-width", 1);
 
     node.append("text")
       .attr("dy", 3)
-      .attr("x", (d: any) => d.children ? -8 : 8)
+      .attr("x", (d: any) => d.children ? -10 : 10)
       .style("text-anchor", (d: any) => d.children ? "end" : "start")
       .text((d: any) => d.data.name)
       .attr("fill", "#ccc")
-      .style("font-size", "10px");
+      .style("font-size", "11px")
+      .style("font-weight", "bold");
 
-  }, [speciesMap]);
+  }, [speciesMap, dimensions]);
 
   return (
-    <div className="bg-gray-800 p-4 rounded-lg shadow-lg">
-      <h3 className="text-gray-400 text-sm font-bold mb-2 uppercase">Evolutionary Tree</h3>
-      <svg ref={svgRef} width={400} height={300} className="w-full h-auto"></svg>
+    <div ref={containerRef} className="w-full h-full min-h-[300px] overflow-hidden">
+      <svg ref={svgRef} width={dimensions.width} height={dimensions.height} className="block"></svg>
     </div>
   );
 };

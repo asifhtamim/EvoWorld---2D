@@ -12,9 +12,9 @@ export const BIOME_FOREST_FRICTION = 0.85;
 export const BIOME_SCRUB_FRICTION = 0.98;
 export const BIOME_WATER_DRAG = 0.92; // Slightly less drag for adapted creatures
 
-export const BIOME_WATER_GROWTH = 0.15; // Algae grows fast
-export const BIOME_FOREST_GROWTH = 0.10;   
-export const BIOME_SCRUB_GROWTH = 0.03;    
+export const BIOME_WATER_GROWTH = 0.30; // Algae grows fast (Increased)
+export const BIOME_FOREST_GROWTH = 0.13; // Increased 
+export const BIOME_SCRUB_GROWTH = 0.039; // Increased   
 
 export const INITIAL_POPULATION = 6;
 export const MAX_POPULATION = 120; 

@@ -36,7 +36,6 @@ const WorldCanvas: React.FC<Props> = ({ simulation, speedMultiplier }) => {
         
         if (isAquatic) {
             // Draw FINS
-            // Static triangular fins
             const finBaseX = (size * 0.2) - (index * 4);
             const finBaseY = side * (size * 0.5);
             ctx.beginPath();
@@ -55,25 +54,20 @@ const WorldCanvas: React.FC<Props> = ({ simulation, speedMultiplier }) => {
 
             ctx.beginPath();
             ctx.moveTo(legBaseX, legBaseY);
-            // Jointed leg look
             ctx.lineTo(legBaseX - swing, legBaseY + (side * limbLen));
             ctx.stroke();
             
-            // Amphibious webbed feet (More pronounced)
             if (isAmphibious) {
-               ctx.fillStyle = c.genome.color; // Same color but maybe different opacity?
+               ctx.fillStyle = c.genome.color; 
                ctx.beginPath();
-               // Draw a fan/web shape
                ctx.arc(legBaseX - swing, legBaseY + (side * limbLen), 3, 0, Math.PI * 2);
                ctx.fill();
-               // Visual webbing line
                ctx.strokeStyle = '#ffffff55';
                ctx.lineWidth = 1;
                ctx.beginPath();
                ctx.moveTo(legBaseX - swing - 2, legBaseY + (side * limbLen));
                ctx.lineTo(legBaseX - swing + 2, legBaseY + (side * limbLen));
                ctx.stroke();
-               // Reset width
                ctx.lineWidth = Math.max(1, size * 0.25);
                ctx.strokeStyle = c.genome.color;
             }
@@ -83,7 +77,6 @@ const WorldCanvas: React.FC<Props> = ({ simulation, speedMultiplier }) => {
     // 2. Draw Body
     ctx.fillStyle = c.genome.color;
     if (isCarnivore) {
-        // Triangle
         ctx.beginPath();
         ctx.moveTo(size + c.genome.mouthSize, 0); 
         ctx.lineTo(-size, -size * 0.7);
@@ -91,13 +84,10 @@ const WorldCanvas: React.FC<Props> = ({ simulation, speedMultiplier }) => {
         ctx.lineTo(-size, size * 0.7);
         ctx.closePath();
     } else {
-        // Oval / Fish Shape
         ctx.beginPath();
         if (isAquatic) {
-            // Streamlined fish
              ctx.ellipse(0, 0, size * 1.2, size * 0.6, 0, 0, Math.PI * 2);
         } else {
-            // Rounder land body
              ctx.ellipse(0, 0, size, size * 0.8, 0, 0, Math.PI * 2);
         }
     }
@@ -118,7 +108,7 @@ const WorldCanvas: React.FC<Props> = ({ simulation, speedMultiplier }) => {
         ctx.fill();
     }
     
-    // Gills indicator for aquatic
+    // Gills indicator
     if (isAquatic) {
         ctx.strokeStyle = '#ffffff55';
         ctx.lineWidth = 1;
@@ -152,27 +142,23 @@ const WorldCanvas: React.FC<Props> = ({ simulation, speedMultiplier }) => {
     ctx.clearRect(0, 0, WORLD_WIDTH, WORLD_HEIGHT);
     
     // --- Draw Biomes ---
-    // Ocean (Left)
     const oceanGrad = ctx.createLinearGradient(0, 0, BIOME_WATER_WIDTH, 0);
-    oceanGrad.addColorStop(0, '#1e3a8a'); // Dark Blue
-    oceanGrad.addColorStop(1, '#3b82f6'); // Lighter Blue
+    oceanGrad.addColorStop(0, '#1e3a8a'); 
+    oceanGrad.addColorStop(1, '#3b82f6'); 
     ctx.fillStyle = oceanGrad;
     ctx.fillRect(0, 0, BIOME_WATER_WIDTH, WORLD_HEIGHT);
 
-    // Forest (Middle)
     const forestEnd = BIOME_WATER_WIDTH + 300;
     const forestGrad = ctx.createLinearGradient(BIOME_WATER_WIDTH, 0, forestEnd, 0);
-    forestGrad.addColorStop(0, '#eab308'); // Sandy Beach edge
-    forestGrad.addColorStop(0.1, '#064e3b'); // Deep Green
+    forestGrad.addColorStop(0, '#eab308'); 
+    forestGrad.addColorStop(0.1, '#064e3b'); 
     forestGrad.addColorStop(1, '#14532d');
     ctx.fillStyle = forestGrad;
     ctx.fillRect(BIOME_WATER_WIDTH, 0, 300, WORLD_HEIGHT);
     
-    // Scrub (Right)
     ctx.fillStyle = '#78350f'; 
     ctx.fillRect(forestEnd, 0, WORLD_WIDTH - forestEnd, WORLD_HEIGHT);
 
-    // Wave/Shoreline effect
     ctx.fillStyle = '#ffffff22';
     const waveOffset = Math.sin(simulation.time * 0.05) * 5;
     ctx.beginPath();
@@ -182,24 +168,20 @@ const WorldCanvas: React.FC<Props> = ({ simulation, speedMultiplier }) => {
     ctx.lineTo(BIOME_WATER_WIDTH - 10 + waveOffset, 0);
     ctx.fill();
 
-    // Labels
     ctx.fillStyle = '#ffffff33';
     ctx.font = '20px sans-serif';
     ctx.fillText("OCEAN", 20, 30);
     ctx.fillText("JUNGLE", BIOME_WATER_WIDTH + 20, 30);
     ctx.fillText("WASTELAND", forestEnd + 20, 30);
 
-    // Draw Food
     simulation.food.forEach(f => {
       ctx.beginPath();
-      // Plants grow slightly visually based on value (mocking age)
       const r = 2 + (Math.sin(f.position.x * 0.1 + simulation.time * 0.01) + 1);
       ctx.arc(f.position.x, f.position.y, r, 0, Math.PI * 2);
-      ctx.fillStyle = f.position.x < BIOME_WATER_WIDTH ? '#22d3ee' : '#4ade80'; // Cyan algae vs Green plants 
+      ctx.fillStyle = f.position.x < BIOME_WATER_WIDTH ? '#22d3ee' : '#4ade80';
       ctx.fill();
     });
 
-    // Draw Critters
     simulation.critters.forEach(c => drawCritter(ctx, c, simulation.time));
 
     requestRef.current = requestAnimationFrame(animate);
@@ -212,13 +194,15 @@ const WorldCanvas: React.FC<Props> = ({ simulation, speedMultiplier }) => {
     };
   }, [speedMultiplier]);
 
+  // Use a wrapper div for aspect ratio management, but canvas fills it
   return (
-    <div className="border-4 border-gray-700 rounded-lg overflow-hidden shadow-2xl relative">
+    <div className="w-full h-full bg-gray-900 flex items-center justify-center overflow-hidden relative">
         <canvas
             ref={canvasRef}
             width={WORLD_WIDTH}
             height={WORLD_HEIGHT}
-            className="block bg-gray-900"
+            className="block"
+            style={{ width: '100%', height: '100%', objectFit: 'contain' }}
         />
         <div className="absolute bottom-2 left-2 bg-black/60 text-white text-xs px-2 py-1 rounded pointer-events-none">
            Entities: {simulation.critters.length} | Food: {simulation.food.length}

@@ -13,11 +13,9 @@ interface Props {
 
 const StatsPanel: React.FC<Props> = ({ data }) => {
   return (
-    <div className="bg-gray-800 p-4 rounded-lg shadow-lg flex-1 min-h-[200px] flex flex-col">
-      <h3 className="text-gray-400 text-sm font-bold mb-2 uppercase">Population History</h3>
-      <div className="flex-1 w-full min-h-[150px]">
+    <div className="w-full h-full min-h-[200px]">
         <ResponsiveContainer width="100%" height="100%">
-          <AreaChart data={data}>
+          <AreaChart data={data} margin={{ top: 10, right: 10, left: 0, bottom: 0 }}>
             <CartesianGrid strokeDasharray="3 3" stroke="#374151" />
             <XAxis dataKey="time" hide />
             <YAxis stroke="#9ca3af" fontSize={12} />
@@ -29,7 +27,6 @@ const StatsPanel: React.FC<Props> = ({ data }) => {
             <Area type="monotone" dataKey="species" stroke="#82ca9d" fill="#82ca9d" name="Species Count" />
           </AreaChart>
         </ResponsiveContainer>
-      </div>
     </div>
   );
 };
