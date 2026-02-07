@@ -1,25 +1,30 @@
-import { Critter, Food, Species, Genome, Vector2 } from '../types';
+import { Critter, Food, Species, Genome, Vector2, ToolMode } from '../types';
 import * as Constants from '../constants';
 import { SpatialHash } from '../core/SpatialHash';
 import { GeneticSystem } from '../systems/Genetics';
 import { EnvironmentSystem } from '../systems/Environment';
 import { CreatureSystem } from '../systems/Creature';
+import { BehaviorSystem } from '../systems/Behavior';
 import { EventBus } from '../core/EventBus';
 
 export class SimulationEngine {
   public events = new EventBus();
   
   critters: Critter[] = [];
+  critterMap: Map<string, Critter> = new Map(); // O(1) lookup
+  
   food: Food[] = [];
   species: Map<string, Species> = new Map();
   time: number = 0;
+  
+  // Selection State
+  selectedCritterId: string | null = null;
   
   // Modular Spatial Partitioning
   foodGrid: SpatialHash<Food> = new SpatialHash();
   critterGrid: SpatialHash<Critter> = new SpatialHash();
 
   private nextId = 0;
-  // Bound function for passing to systems
   private generateId = () => `ent_${this.nextId++}`;
   private generateSuffix = () => (this.nextId).toString(36);
 
@@ -29,14 +34,14 @@ export class SimulationEngine {
 
   reset() {
     this.critters = [];
+    this.critterMap.clear();
     this.food = [];
     this.species.clear();
     this.time = 0;
+    this.selectedCritterId = null;
     this.foodGrid.clear();
     this.critterGrid.clear();
-    this.events.clear(); // Clear old listeners to avoid memory leaks? 
-    // Actually we shouldn't clear listeners because React components are still mounted.
-    // Ideally reset events.emit('RESET')
+    this.events.clear();
     
     const rootSpeciesId = 'species_0';
     this.species.set(rootSpeciesId, {
@@ -50,7 +55,6 @@ export class SimulationEngine {
       firstAppearedAt: 0,
     });
 
-    // Spawn Initial Life
     for(let i=0; i<Constants.INITIAL_POPULATION; i++) {
         this.spawnCritter(
             Math.random() * (Constants.BIOME_WATER_WIDTH - 50) + 20, 
@@ -60,7 +64,6 @@ export class SimulationEngine {
         );
     }
   
-    // Initial Food Scatter
     for (let i = 0; i < 5000; i++) {
         EnvironmentSystem.spawnRandomFood(this.food, this.foodGrid, this.generateId);
     }
@@ -79,183 +82,211 @@ export class SimulationEngine {
       genome: { ...genome },
       state: 'wandering',
       targetId: null,
+      targetPosition: null,
+      nextThinkTime: this.time + Math.random() * 20, // Stagger initial thinking
       heading: Math.random() * Math.PI * 2,
       gridIndex: 0
     };
     
     this.critters.push(critter);
+    this.critterMap.set(critter.id, critter);
     this.critterGrid.add(critter);
 
     const spec = this.species.get(speciesId);
     if (spec) spec.count++;
   }
 
+  // --- Interaction API ---
+
+  handleInteraction(x: number, y: number, mode: ToolMode) {
+      if (mode === 'inspect') {
+          const clicked = this.findCritterAt(x, y);
+          this.selectedCritterId = clicked ? clicked.id : null;
+          if (clicked) {
+              const spec = this.species.get(clicked.speciesId);
+              this.events.emit('LOG', { message: `Selected: ${spec?.name} (Energy: ${Math.round(clicked.energy)})`, color: clicked.genome.color });
+          } else {
+              this.selectedCritterId = null;
+          }
+          this.events.emit('SELECTION_CHANGED', this.selectedCritterId);
+      } 
+      else if (mode === 'feed') {
+          for(let i=0; i<Constants.FEED_AMOUNT; i++) {
+              const fx = x + (Math.random() * Constants.FEED_RADIUS * 2 - Constants.FEED_RADIUS);
+              const fy = y + (Math.random() * Constants.FEED_RADIUS * 2 - Constants.FEED_RADIUS);
+              if (fx > 0 && fx < Constants.WORLD_WIDTH && fy > 0 && fy < Constants.WORLD_HEIGHT) {
+                EnvironmentSystem.createFood(fx, fy, this.food, this.foodGrid, this.generateId);
+              }
+          }
+          this.events.emit('LOG', { message: 'Divine Intervention: Manna from heaven.', type: 'system' });
+      }
+      else if (mode === 'smite') {
+          const victim = this.findCritterAt(x, y);
+          if (victim) {
+              const idx = this.critters.findIndex(c => c.id === victim.id);
+              if (idx !== -1) {
+                  this.killCritter(idx);
+                  this.events.emit('LOG', { message: 'Divine Intervention: Smited!', type: 'extinct' });
+              }
+          }
+      }
+      else if (mode === 'meteor') {
+          const center = {x, y};
+          let killCount = 0;
+          for (let i = this.critters.length - 1; i >= 0; i--) {
+              if (CreatureSystem.dist(this.critters[i].position, center) < Constants.METEOR_RADIUS) {
+                  this.killCritter(i);
+                  killCount++;
+              }
+          }
+          this.food = this.food.filter(f => CreatureSystem.dist(f.position, center) > Constants.METEOR_RADIUS);
+          this.events.emit('LOG', { message: `Divine Intervention: Meteor Impact! ${killCount} killed.`, type: 'extinct' });
+      }
+  }
+
+  private findCritterAt(x: number, y: number): Critter | undefined {
+      const idx = this.critterGrid.getIndex({x, y});
+      const candidates = this.critterGrid.query(idx);
+      const clickRadius = 20; 
+      
+      let best: Critter | undefined;
+      let closestDist = Infinity;
+
+      for(const c of candidates) {
+          const d = CreatureSystem.dist(c.position, {x, y});
+          if (d < c.genome.size + clickRadius && d < closestDist) {
+              closestDist = d;
+              best = c;
+          }
+      }
+      return best;
+  }
+  
+  getSelectedCritter(): Critter | undefined {
+      if (!this.selectedCritterId) return undefined;
+      // O(1) Lookup optimization
+      return this.critterMap.get(this.selectedCritterId);
+  }
+
   // --- Core Loop ---
   update() {
     this.time++;
-    
-    // 1. Environment System
     EnvironmentSystem.update(this.food, this.foodGrid, this.generateId);
 
-    // 2. Creature Update Loop
+    // Creature Update Loop
     for (let i = this.critters.length - 1; i >= 0; i--) {
       const critter = this.critters[i];
       critter.age++;
       
-      this.decideAction(critter);
+      // 1. AI Decision (Behavior System) - Throttled
+      if (this.time >= critter.nextThinkTime) {
+          const neighbors = this.critterGrid.query(critter.gridIndex);
+          const foodNeighbors = critter.genome.diet <= 0.5 ? this.foodGrid.query(critter.gridIndex) : [];
+          
+          // Modifies critter state/target in place
+          BehaviorSystem.think(critter, neighbors, foodNeighbors, this.time);
+      }
+      
+      // 2. Continuous Action Execution (Tracking)
+      // Even if we didn't "think" this frame, we need to steer towards our target
+      if (critter.targetId) {
+          if (critter.state === 'hunting') {
+              // Track Prey
+              const prey = this.critterMap.get(critter.targetId);
+              if (prey) {
+                  critter.targetPosition = prey.position; // Update tracking position
+              } else {
+                  // Prey died or lost
+                  critter.state = 'wandering';
+                  critter.targetId = null;
+                  critter.nextThinkTime = this.time; // Re-think immediately
+              }
+          } 
+          // Note: seeking_food targets usually don't move, so targetPosition remains valid
+      }
+
+      // Apply Steering
+      if (critter.state === 'fleeing' && critter.targetPosition) {
+          CreatureSystem.fleeFrom(critter, critter.targetPosition);
+      } else if ((critter.state === 'hunting' || critter.state === 'seeking_food') && critter.targetPosition) {
+          CreatureSystem.steerTowards(critter, critter.targetPosition);
+          this.handleInteractionLogic(critter);
+      } else if (critter.state === 'wandering') {
+          CreatureSystem.wander(critter);
+      } else if (critter.state === 'resting') {
+          critter.velocity.x *= 0.8;
+          critter.velocity.y *= 0.8;
+      }
+
+      // 3. Physics & Biology
       GeneticSystem.applyDrift(critter);
       CreatureSystem.move(critter, this.critterGrid);
       CreatureSystem.enforceBoundaries(critter);
       CreatureSystem.calculateMetabolism(critter);
+
+      if (critter.energy > critter.genome.reproThreshold && critter.state !== 'fleeing' && critter.state !== 'hunting') {
+           this.reproduce(critter);
+      }
 
       if (critter.energy <= 0 || critter.age > 4000) {
         this.killCritter(i);
       }
     }
 
-    // Cleanup Eaten Food periodically
     if (this.time % 5 === 0) { 
         this.food = this.food.filter(f => f.energyValue > 0);
     }
 
-    // Emit Stats Update periodically (approx every 0.5s at 60fps) to decouple UI frame rate
     if (this.time % 30 === 0) {
         this.events.emit('STATS_UPDATE', {
             time: this.time,
             population: this.critters.length,
-            speciesCount: this.species.size, // Approximation
-            extinctCount: 0 // Will be calc in app or we can do it here
+            speciesCount: this.species.size, 
+            extinctCount: 0 
         });
     }
   }
 
-  // --- AI / Decision Making (Orchestrator Level) ---
-  private decideAction(critter: Critter) {
-    const isCarnivore = critter.genome.diet > 0.5;
-
-    if (!isCarnivore) {
-        const threat = this.findNearestPredator(critter);
-        if (threat) {
-            critter.state = 'fleeing';
-            CreatureSystem.fleeFrom(critter, threat.position);
-            return;
-        }
-    }
-
-    if (critter.energy > critter.genome.reproThreshold) {
-        this.reproduce(critter);
-        return;
-    }
-
-    if (isCarnivore) {
-        this.huntPrey(critter);
-    } else {
-        this.seekFood(critter);
-    }
-  }
-
-  private findNearestPredator(critter: Critter): Critter | null {
-      let nearest: Critter | null = null;
-      let minDist = Infinity;
+  private handleInteractionLogic(critter: Critter) {
+      if (!critter.targetId || !critter.targetPosition) return;
       
-      const neighbors = this.critterGrid.query(critter.gridIndex);
-
-      for (const other of neighbors) {
-          if (other.id === critter.id) continue;
-          if (other.genome.diet > 0.5 && other.genome.size >= critter.genome.size) {
-              const d = CreatureSystem.dist(critter.position, other.position);
-              if (d < critter.genome.senseRadius && d < minDist) {
-                  minDist = d;
-                  nearest = other;
+      const d = CreatureSystem.dist(critter.position, critter.targetPosition);
+      
+      if (critter.state === 'hunting') {
+           const attackRange = critter.genome.size + critter.genome.mouthSize;
+           if (d < attackRange) {
+              const prey = this.critterMap.get(critter.targetId);
+              if (prey) {
+                  const preyIdx = this.critters.findIndex(c => c.id === prey.id); // Slow, but infrequent
+                  if (preyIdx !== -1) {
+                      critter.energy += prey.energy * Constants.ENERGY_GAIN_MEAT_MULTIPLIER + (prey.genome.size * 10);
+                      this.killCritter(preyIdx);
+                  }
               }
-          }
-      }
-      return nearest;
-  }
-
-  private huntPrey(critter: Critter) {
-      let nearestPrey: Critter | null = null;
-      let minDist = Infinity;
-      
-      const neighbors = this.critterGrid.query(critter.gridIndex);
-
-      for (const other of neighbors) {
-         if (other.id === critter.id) continue;
-         if (other.speciesId === critter.speciesId) continue; 
-
-         const preyDefenseFactor = 1 + (other.genome.defense || 0); 
-         const preyEffectiveSize = other.genome.size * preyDefenseFactor;
-         
-         const predatorBonus = critter.genome.diet > 0.7 ? 2 : 0;
-         const combatAdvantage = (critter.genome.size + critter.genome.mouthSize * 2 + predatorBonus) > (preyEffectiveSize + (other.genome.diet > 0.5 ? other.genome.mouthSize : 0));
-
-         if (combatAdvantage) {
-            const d = CreatureSystem.dist(critter.position, other.position);
-            if (d < critter.genome.senseRadius && d < minDist) {
-                minDist = d;
-                nearestPrey = other;
-            }
-         }
-      }
-
-      if (nearestPrey) {
-          critter.state = 'hunting';
-          critter.targetId = nearestPrey.id;
-          CreatureSystem.steerTowards(critter, nearestPrey.position);
-          
-          if (minDist < critter.genome.size + nearestPrey.genome.size) {
-              critter.energy += nearestPrey.energy * Constants.ENERGY_GAIN_MEAT_MULTIPLIER + (nearestPrey.genome.size * 10);
-              
-              const preyIndex = this.critters.findIndex(c => c.id === nearestPrey!.id);
-              if (preyIndex !== -1) this.killCritter(preyIndex);
-              
+              critter.state = 'wandering';
               critter.targetId = null;
-          }
-      } else {
-          critter.state = 'wandering';
-          CreatureSystem.wander(critter);
+           }
+      } 
+      else if (critter.state === 'seeking_food') {
+           const eatRange = critter.genome.size + (critter.genome.mouthSize / 2);
+           if (d < eatRange) {
+               // We need the food object. Spatial query is fast.
+               const localFood = this.foodGrid.query(critter.gridIndex);
+               const f = localFood.find(fd => fd.id === critter.targetId);
+               if (f && f.energyValue > 0) {
+                   critter.energy += f.energyValue;
+                   f.energyValue = 0;
+                   this.foodGrid.remove(f);
+               }
+               critter.state = 'wandering';
+               critter.targetId = null;
+           }
       }
-  }
-
-  private seekFood(critter: Critter) {
-    let nearestFood: Food | null = null;
-    let minDist = Infinity;
-    
-    const neighbors = this.foodGrid.query(critter.gridIndex);
-
-    for (const f of neighbors) {
-        if (f.energyValue <= 0) continue; 
-
-        const d = CreatureSystem.dist(critter.position, f.position);
-        if (d < critter.genome.senseRadius && d < minDist) {
-            minDist = d;
-            nearestFood = f;
-        }
-    }
-
-    if (nearestFood) {
-      critter.state = 'seeking_food';
-      critter.targetId = nearestFood.id;
-      CreatureSystem.steerTowards(critter, nearestFood.position);
-
-      const eatRange = critter.genome.size + (critter.genome.mouthSize / 2);
-      if (minDist < eatRange) {
-        critter.energy += nearestFood.energyValue;
-        nearestFood.energyValue = 0; 
-        this.foodGrid.remove(nearestFood); // Immediate removal from spatial hash
-
-        critter.targetId = null;
-      }
-    } else {
-      critter.state = 'wandering';
-      CreatureSystem.wander(critter);
-    }
   }
 
   private reproduce(parent: Critter) {
     if (this.critters.length >= Constants.MAX_POPULATION) return;
 
-    // Use Genetic System
     const { genome, speciesId, newSpecies } = GeneticSystem.createOffspring(parent, this.species, this.time, this.generateSuffix);
 
     if (newSpecies) {
@@ -279,7 +310,13 @@ export class SimulationEngine {
 
   private killCritter(index: number) {
     const c = this.critters[index];
+    if (this.selectedCritterId === c.id) {
+        this.selectedCritterId = null; // Deselect if died
+        this.events.emit('SELECTION_CHANGED', null);
+    }
+    
     this.critterGrid.remove(c);
+    this.critterMap.delete(c.id); // Remove from Map
 
     const s = this.species.get(c.speciesId);
     if (s) {

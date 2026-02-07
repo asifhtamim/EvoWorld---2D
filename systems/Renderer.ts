@@ -85,8 +85,7 @@ export class Renderer {
                 const idx = c + r * GRID_COLS;
                 if (idx < simulation.foodGrid.grid.length) {
                     const cell = simulation.foodGrid.grid[idx];
-                    for (let k = 0; k < cell.length; k++) {
-                        const f = cell[k];
+                    for (const f of cell) {
                         if (f.energyValue <= 0) continue;
                         ctx.fillStyle = f.position.x < BIOME_WATER_WIDTH ? '#22d3ee' : '#4ade80';
                         ctx.fillRect(f.position.x - 2, f.position.y - 2, 4, 4);
@@ -102,17 +101,27 @@ export class Renderer {
             const idx = c + r * GRID_COLS;
             if (idx < simulation.critterGrid.grid.length) {
                 const cell = simulation.critterGrid.grid[idx];
-                for (let k = 0; k < cell.length; k++) {
-                    this.drawCritter(ctx, cell[k], simulation.time);
+                for (const critter of cell) {
+                    this.drawCritter(ctx, critter, simulation.time, simulation.selectedCritterId === critter.id);
                 }
             }
         }
     }
   }
 
-  private static drawCritter(ctx: CanvasRenderingContext2D, c: Critter, time: number) {
+  private static drawCritter(ctx: CanvasRenderingContext2D, c: Critter, time: number, isSelected: boolean) {
     ctx.save();
     ctx.translate(c.position.x, c.position.y);
+    
+    // Selection Halo
+    if (isSelected) {
+        ctx.strokeStyle = '#ffffff';
+        ctx.lineWidth = 2;
+        ctx.beginPath();
+        ctx.arc(0, 0, c.genome.size * 2 + 10, 0, Math.PI * 2);
+        ctx.stroke();
+    }
+
     ctx.rotate(c.heading);
 
     const size = c.genome.size;
@@ -143,7 +152,9 @@ export class Renderer {
         } else {
             const offset = (index / limbCount) * Math.PI;
             const speed = Math.sqrt(c.velocity.x**2 + c.velocity.y**2);
-            const swing = Math.sin(time * 0.5 + offset) * (speed * 2);
+            // Don't animate legs if resting
+            const isMoving = c.state !== 'resting';
+            const swing = isMoving ? Math.sin(time * 0.5 + offset) * (speed * 2) : 0;
             const legBaseX = (size * 0.5) - (index * (size / (limbCount/2 + 1)));
             const legBaseY = side * (size * 0.5);
 
@@ -226,13 +237,21 @@ export class Renderer {
         ctx.stroke();
     }
 
-    // State Indicator
+    // State Indicators
     if (c.state === 'hunting' || c.state === 'fleeing') {
         ctx.strokeStyle = c.state === 'hunting' ? '#ef4444' : '#fbbf24';
         ctx.lineWidth = 1;
         ctx.beginPath();
         ctx.arc(0, 0, size * 1.5, 0, Math.PI * 2);
         ctx.stroke();
+    }
+    
+    // Zzz Particles for Sleep
+    if (c.state === 'resting') {
+        ctx.fillStyle = '#ffffff';
+        const offset = Math.sin(time * 0.1) * 5;
+        ctx.font = '10px sans-serif';
+        ctx.fillText("z", 5, -10 - offset);
     }
 
     ctx.restore();

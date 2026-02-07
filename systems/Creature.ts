@@ -102,7 +102,15 @@ export class CreatureSystem {
       }
 
       const moveCost = (speed * (g.size * 0.1) * Constants.ENERGY_COST_MOVE_BASE) / efficiency;
-      critter.energy -= (Constants.ENERGY_COST_EXIST + limbCost + mouthCost + moveCost + sizeCost + defenseCost + suffocation);
+      
+      let totalCost = Constants.ENERGY_COST_EXIST + limbCost + mouthCost + moveCost + sizeCost + defenseCost + suffocation;
+      
+      // Resting Logic
+      if (critter.state === 'resting') {
+          totalCost *= Constants.ENERGY_COST_RESTING_MULTIPLIER;
+      }
+
+      critter.energy -= totalCost;
   }
 
   // --- Helpers ---

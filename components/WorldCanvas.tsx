@@ -2,14 +2,16 @@ import React, { useEffect, useRef, useState } from 'react';
 import { SimulationEngine } from '../services/simulationEngine';
 import { Renderer } from '../systems/Renderer';
 import { WORLD_WIDTH, WORLD_HEIGHT, GRID_CELL_SIZE } from '../constants';
+import { ToolMode } from '../types';
 import { Gamepad2, ArrowUp, ArrowDown, ArrowLeft, ArrowRight, ZoomIn, ZoomOut } from 'lucide-react';
 
 interface Props {
   simulation: SimulationEngine;
   speedMultiplier: number;
+  activeTool: ToolMode;
 }
 
-const WorldCanvas: React.FC<Props> = ({ simulation, speedMultiplier }) => {
+const WorldCanvas: React.FC<Props> = ({ simulation, speedMultiplier, activeTool }) => {
   const canvasRef = useRef<HTMLCanvasElement>(null);
   const containerRef = useRef<HTMLDivElement>(null);
   const requestRef = useRef<number | null>(null);
@@ -53,6 +55,20 @@ const WorldCanvas: React.FC<Props> = ({ simulation, speedMultiplier }) => {
       setZoom(z => Math.max(0.1, Math.min(2.0, z + delta)));
   };
 
+  const handleCanvasClick = (e: React.MouseEvent) => {
+      if (!canvasRef.current) return;
+      
+      const rect = canvasRef.current.getBoundingClientRect();
+      const clickX = e.clientX - rect.left;
+      const clickY = e.clientY - rect.top;
+
+      // Convert Screen Coords -> World Coords
+      const worldX = camera.current.x + (clickX / zoom);
+      const worldY = camera.current.y + (clickY / zoom);
+
+      simulation.handleInteraction(worldX, worldY, activeTool);
+  };
+
   const animate = () => {
     if (!canvasRef.current) return;
     const ctx = canvasRef.current.getContext('2d');
@@ -90,14 +106,20 @@ const WorldCanvas: React.FC<Props> = ({ simulation, speedMultiplier }) => {
     };
   }, [speedMultiplier, viewport, zoom]);
 
+  // Cursor style based on tool
+  const cursorClass = activeTool === 'inspect' ? 'cursor-crosshair' : 
+                      activeTool === 'smite' ? 'cursor-not-allowed' :
+                      activeTool === 'feed' ? 'cursor-cell' : 'cursor-default';
+
   return (
     <div ref={containerRef} className="w-full h-full bg-gray-900 relative overflow-hidden group">
         <canvas
             ref={canvasRef}
             width={viewport.width}
             height={viewport.height}
-            className="block cursor-crosshair active:cursor-grabbing"
+            className={`block active:cursor-grabbing ${cursorClass}`}
             onWheel={handleWheel}
+            onClick={handleCanvasClick}
         />
         
         {/* Toggle Controls Button */}

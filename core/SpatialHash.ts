@@ -2,7 +2,7 @@ import { Vector2 } from '../types';
 import { GRID_CELL_SIZE, GRID_COLS, GRID_ROWS } from '../constants';
 
 export class SpatialHash<T extends { position: Vector2, id: string, gridIndex: number }> {
-  grid: T[][] = [];
+  grid: Set<T>[] = [];
 
   constructor() {
     this.clear();
@@ -10,7 +10,7 @@ export class SpatialHash<T extends { position: Vector2, id: string, gridIndex: n
 
   clear() {
     const total = GRID_COLS * GRID_ROWS;
-    this.grid = new Array(total).fill(null).map(() => []);
+    this.grid = new Array(total).fill(null).map(() => new Set<T>());
   }
 
   getIndex(pos: Vector2): number {
@@ -24,14 +24,13 @@ export class SpatialHash<T extends { position: Vector2, id: string, gridIndex: n
   add(item: T) {
     const idx = this.getIndex(item.position);
     item.gridIndex = idx;
-    this.grid[idx].push(item);
+    this.grid[idx].add(item);
   }
 
   remove(item: T) {
     const idx = item.gridIndex;
     if (this.grid[idx]) {
-        const i = this.grid[idx].indexOf(item);
-        if (i > -1) this.grid[idx].splice(i, 1);
+        this.grid[idx].delete(item);
     }
   }
 
@@ -40,7 +39,7 @@ export class SpatialHash<T extends { position: Vector2, id: string, gridIndex: n
     if (newIdx !== item.gridIndex) {
       this.remove(item);
       item.gridIndex = newIdx;
-      this.grid[newIdx].push(item);
+      this.grid[newIdx].add(item);
     }
   }
 
@@ -56,8 +55,9 @@ export class SpatialHash<T extends { position: Vector2, id: string, gridIndex: n
             if (nc >= 0 && nc < GRID_COLS && nr >= 0 && nr < GRID_ROWS) {
                 const idx = nc + nr * GRID_COLS;
                 const cell = this.grid[idx];
-                for(let i=0; i<cell.length; i++) {
-                    results.push(cell[i]);
+                // Sets are iterable
+                for(const item of cell) {
+                    results.push(item);
                 }
             }
         }

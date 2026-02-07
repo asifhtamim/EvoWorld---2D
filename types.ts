@@ -7,7 +7,7 @@ export interface Genome {
   speed: number;        // Base metabolic speed
   size: number;         // Body mass
   senseRadius: number;  // Vision
-  reproThreshold: number; // Energy required to reproduce (Mutation parameter for Rate)
+  reproThreshold: number; // Energy required to reproduce
   color: string;        
   diet: number;         // 0.0 = Herbivore, 1.0 = Carnivore
   amphibious: number;   // 0.0 = Water specialized, 1.0 = Land specialized
@@ -38,8 +38,10 @@ export interface Critter {
   energy: number;
   age: number;
   genome: Genome;
-  state: 'wandering' | 'seeking_food' | 'fleeing' | 'hunting';
+  state: 'wandering' | 'seeking_food' | 'fleeing' | 'hunting' | 'resting';
   targetId: string | null;
+  targetPosition: Vector2 | null; // Persisted target location
+  nextThinkTime: number; // AI Throttling
   heading: number; // For smooth rotation
   gridIndex: number; // Optimization: Spatial grid index
 }
@@ -69,3 +71,5 @@ export interface TreeNode {
   };
   children?: TreeNode[];
 }
+
+export type ToolMode = 'inspect' | 'feed' | 'smite' | 'meteor';
