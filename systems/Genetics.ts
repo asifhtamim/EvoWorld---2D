@@ -1,3 +1,4 @@
+
 import { Genome, Species, Critter } from '../types';
 import * as Constants from '../constants';
 
@@ -100,9 +101,12 @@ export class GeneticSystem {
   }
 
   static applyDrift(critter: Critter) {
+    // Disabled drift for now - mutations only occur at reproduction
+    /*
     if (Math.random() > Constants.GENETIC_DRIFT_RATE) return;
     const drift = () => 1 + ((Math.random() * 2 - 1) * Constants.GENETIC_DRIFT_SCALE);
     critter.genome.speed *= drift();
     critter.genome.size *= drift();
+    */
   }
 }

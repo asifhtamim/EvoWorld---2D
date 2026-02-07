@@ -1,3 +1,4 @@
+
 import { Critter, Vector2, BiomeType } from '../types';
 import * as Constants from '../constants';
 import { SpatialHash } from '../core/SpatialHash';
@@ -30,10 +31,26 @@ export class CreatureSystem {
 
   static enforceBoundaries(critter: Critter) {
     const margin = 10;
-    if (critter.position.x < margin) critter.velocity.x = Math.abs(critter.velocity.x);
-    if (critter.position.x > Constants.WORLD_WIDTH - margin) critter.velocity.x = -Math.abs(critter.velocity.x);
-    if (critter.position.y < margin) critter.velocity.y = Math.abs(critter.velocity.y);
-    if (critter.position.y > Constants.WORLD_HEIGHT - margin) critter.velocity.y = -Math.abs(critter.velocity.y);
+    if (critter.position.x < margin) {
+        critter.position.x = margin;
+        critter.velocity.x = Math.abs(critter.velocity.x);
+        critter.heading = 0;
+    }
+    if (critter.position.x > Constants.WORLD_WIDTH - margin) {
+        critter.position.x = Constants.WORLD_WIDTH - margin;
+        critter.velocity.x = -Math.abs(critter.velocity.x);
+        critter.heading = Math.PI;
+    }
+    if (critter.position.y < margin) {
+        critter.position.y = margin;
+        critter.velocity.y = Math.abs(critter.velocity.y);
+        critter.heading = Math.PI / 2;
+    }
+    if (critter.position.y > Constants.WORLD_HEIGHT - margin) {
+        critter.position.y = Constants.WORLD_HEIGHT - margin;
+        critter.velocity.y = -Math.abs(critter.velocity.y);
+        critter.heading = -Math.PI / 2;
+    }
   }
 
   static normalizeVelocity(critter: Critter) {
@@ -54,7 +71,6 @@ export class CreatureSystem {
         maxSpeed *= (1.0 - (critter.genome.defense * 0.3));
     }
 
-    // Mountain Penalty for non-climbers (not implemented yet, generic penalty)
     if (biome === BiomeType.MOUNTAIN) {
         maxSpeed *= 0.4;
     }
@@ -71,16 +87,16 @@ export class CreatureSystem {
     maxSpeed = Math.max(0.1, maxSpeed);
 
     const currentSpeed = Math.sqrt(critter.velocity.x**2 + critter.velocity.y**2);
-    
-    if (currentSpeed > 0.1) {
-        critter.heading = Math.atan2(critter.velocity.y, critter.velocity.x);
-    }
 
+    // Limit speed
     if (currentSpeed > maxSpeed) {
       const ratio = maxSpeed / currentSpeed;
       critter.velocity.x *= ratio;
       critter.velocity.y *= ratio;
     }
+    
+    // Note: We no longer force heading to match velocity. 
+    // Heading now drives velocity (Steering Behavior), not the other way around.
   }
 
   // --- Metabolism ---
@@ -131,25 +147,51 @@ export class CreatureSystem {
     return Math.sqrt((a.x - b.x)**2 + (a.y - b.y)**2);
   }
 
+  static turnTowards(critter: Critter, targetAngle: number) {
+      // Calculate Turn Speed / Agility
+      const biome = TerrainSystem.getBiomeAt(critter.position.x, critter.position.y);
+      const inWater = (biome === BiomeType.OCEAN || biome === BiomeType.DEEP_OCEAN);
+      let turnSpeed = 0.1; // Base agility
+
+      if (inWater) {
+           turnSpeed += (critter.genome.limbCount * 0.02);
+           if (critter.genome.amphibious > 0.6) turnSpeed *= 0.5; 
+      } else {
+           turnSpeed += (critter.genome.limbCount * 0.015);
+           if (critter.genome.amphibious < 0.4) turnSpeed *= 0.2; 
+      }
+      
+      // Large creatures turn slower
+      turnSpeed *= Math.max(0.3, 1.0 - (critter.genome.size * 0.03));
+
+      let diff = targetAngle - critter.heading;
+      // Normalize angle difference to -PI to PI
+      while (diff < -Math.PI) diff += Math.PI * 2;
+      while (diff > Math.PI) diff -= Math.PI * 2;
+      
+      if (Math.abs(diff) < turnSpeed) {
+          critter.heading = targetAngle;
+      } else {
+          critter.heading += Math.sign(diff) * turnSpeed;
+      }
+  }
+
+  static applyForwardForce(critter: Critter, multiplier: number = 1.0) {
+      // Acceleration is less than max speed, letting friction stabilize it
+      const accel = 0.5 * multiplier; 
+      critter.velocity.x += Math.cos(critter.heading) * accel;
+      critter.velocity.y += Math.sin(critter.heading) * accel;
+  }
+
   static steerTowards(critter: Critter, target: Vector2) {
     const dx = target.x - critter.position.x;
     const dy = target.y - critter.position.y;
-    const dist = Math.sqrt(dx*dx + dy*dy);
-    if (dist > 0) {
-      const biome = TerrainSystem.getBiomeAt(critter.position.x, critter.position.y);
-      const inWater = (biome === BiomeType.OCEAN || biome === BiomeType.DEEP_OCEAN);
-      let turnSpeed = 0.05;
-
-      if (inWater) {
-          turnSpeed += (critter.genome.limbCount * 0.03);
-          if (critter.genome.amphibious > 0.6) turnSpeed *= 0.5; 
-      } else {
-          turnSpeed += (critter.genome.limbCount * 0.015);
-          if (critter.genome.amphibious < 0.4) turnSpeed *= 0.2; 
-      }
-      
-      critter.velocity.x += (dx / dist) * turnSpeed;
-      critter.velocity.y += (dy / dist) * turnSpeed;
+    const distSq = dx*dx + dy*dy;
+    
+    if (distSq > 0) {
+      const targetAngle = Math.atan2(dy, dx);
+      CreatureSystem.turnTowards(critter, targetAngle);
+      CreatureSystem.applyForwardForce(critter, 1.0);
     }
     CreatureSystem.normalizeVelocity(critter);
   }
@@ -157,17 +199,24 @@ export class CreatureSystem {
   static fleeFrom(critter: Critter, threat: Vector2) {
       const dx = critter.position.x - threat.x;
       const dy = critter.position.y - threat.y;
-      const dist = Math.sqrt(dx*dx + dy*dy);
-      if (dist > 0) {
-          critter.velocity.x += (dx / dist) * 1.0; 
-          critter.velocity.y += (dy / dist) * 1.0;
-      }
+      
+      const threatAngle = Math.atan2(dy, dx);
+      // Flee = Move towards opposite angle
+      const targetAngle = threatAngle + Math.PI;
+      
+      CreatureSystem.turnTowards(critter, targetAngle);
+      // Fleeing is panicked, so move faster
+      CreatureSystem.applyForwardForce(critter, 1.5);
+
       CreatureSystem.normalizeVelocity(critter);
   }
 
   static wander(critter: Critter) {
-    critter.velocity.x += (Math.random() - 0.5) * 1.5;
-    critter.velocity.y += (Math.random() - 0.5) * 1.5;
+    // Smooth wander: modify heading slightly rather than adding random velocity
+    const WANDER_JITTER = 0.15; // Max radians to turn per tick
+    critter.heading += (Math.random() - 0.5) * WANDER_JITTER;
+    
+    CreatureSystem.applyForwardForce(critter, 0.8);
     CreatureSystem.normalizeVelocity(critter);
   }
 }

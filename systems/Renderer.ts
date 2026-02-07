@@ -1,3 +1,4 @@
+
 import { SimulationEngine } from '../services/simulationEngine';
 import { WORLD_WIDTH, WORLD_HEIGHT, GRID_CELL_SIZE, GRID_COLS } from '../constants';
 import { Critter, BiomeType } from '../types';
@@ -62,7 +63,6 @@ export class Renderer {
                     for (const f of cell) {
                         if (f.energyValue <= 0) continue;
                         // Use biome to color food slightly differently?
-                        const inWater = f.position.x < 1500; // rough guess for color, or look up biome
                         ctx.fillStyle = f.position.x < 1500 ? '#22d3ee' : '#4ade80'; // fallback logic for speed
                         ctx.fillRect(f.position.x - 2, f.position.y - 2, 4, 4);
                     }
@@ -196,7 +196,9 @@ export class Renderer {
             ctx.lineTo(size + c.genome.mouthSize, 4);
             ctx.lineTo(size, 2);
         } else {
-            ctx.arc(size * 0.8, 0, c.genome.mouthSize * 0.5, 0, Math.PI * 2);
+            // Cap visual mouth size so it doesn't look like a giant black ball surrounding the creature
+            const mouthRadius = Math.min(c.genome.mouthSize * 0.5, size * 0.7);
+            ctx.arc(size * 0.8, 0, mouthRadius, 0, Math.PI * 2);
         }
         ctx.fill();
     }
