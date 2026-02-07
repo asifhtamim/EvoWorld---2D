@@ -1,6 +1,7 @@
 import { SimulationEngine } from '../services/simulationEngine';
-import { WORLD_WIDTH, WORLD_HEIGHT, BIOME_WATER_WIDTH, BIOME_FOREST_WIDTH, GRID_CELL_SIZE, GRID_COLS } from '../constants';
-import { Critter } from '../types';
+import { WORLD_WIDTH, WORLD_HEIGHT, GRID_CELL_SIZE, GRID_COLS } from '../constants';
+import { Critter, BiomeType } from '../types';
+import { TerrainSystem } from '../core/TerrainSystem';
 
 export class Renderer {
   
@@ -17,50 +18,23 @@ export class Renderer {
     ctx.scale(zoom, zoom);
     ctx.translate(-camera.x, -camera.y);
 
-    this.drawBackground(ctx, simulation.time);
+    this.drawBackground(ctx);
     this.drawEntities(ctx, simulation, camera, zoom, viewport);
 
     ctx.restore();
   }
 
-  private static drawBackground(ctx: CanvasRenderingContext2D, time: number) {
-    // Ocean
-    const oceanGrad = ctx.createLinearGradient(0, 0, BIOME_WATER_WIDTH, 0);
-    oceanGrad.addColorStop(0, '#1e3a8a'); 
-    oceanGrad.addColorStop(1, '#3b82f6'); 
-    ctx.fillStyle = oceanGrad;
-    ctx.fillRect(0, 0, BIOME_WATER_WIDTH, WORLD_HEIGHT);
-
-    // Forest
-    const forestStart = BIOME_WATER_WIDTH;
-    const forestEnd = forestStart + BIOME_FOREST_WIDTH;
-    const forestGrad = ctx.createLinearGradient(forestStart, 0, forestEnd, 0);
-    forestGrad.addColorStop(0, '#eab308'); 
-    forestGrad.addColorStop(0.1, '#064e3b'); 
-    forestGrad.addColorStop(1, '#14532d');
-    ctx.fillStyle = forestGrad;
-    ctx.fillRect(forestStart, 0, BIOME_FOREST_WIDTH, WORLD_HEIGHT);
+  private static drawBackground(ctx: CanvasRenderingContext2D) {
+    // Draw the cached terrain map
+    if (TerrainSystem.backgroundCanvas) {
+        ctx.drawImage(TerrainSystem.backgroundCanvas, 0, 0, WORLD_WIDTH, WORLD_HEIGHT);
+    } else {
+        ctx.fillStyle = '#000';
+        ctx.fillRect(0, 0, WORLD_WIDTH, WORLD_HEIGHT);
+    }
     
-    // Scrub/Wasteland
-    ctx.fillStyle = '#78350f'; 
-    ctx.fillRect(forestEnd, 0, WORLD_WIDTH - forestEnd, WORLD_HEIGHT);
-
-    // Shoreline Wave Effect
-    ctx.fillStyle = '#ffffff22';
-    const waveOffset = Math.sin(time * 0.05) * 20;
-    ctx.beginPath();
-    ctx.moveTo(BIOME_WATER_WIDTH + waveOffset, 0);
-    ctx.lineTo(BIOME_WATER_WIDTH + waveOffset, WORLD_HEIGHT);
-    ctx.lineTo(BIOME_WATER_WIDTH - 40 + waveOffset, WORLD_HEIGHT);
-    ctx.lineTo(BIOME_WATER_WIDTH - 40 + waveOffset, 0);
-    ctx.fill();
-
-    // Biome Labels
-    ctx.fillStyle = '#ffffff33';
-    ctx.font = '80px sans-serif';
-    ctx.fillText("OCEAN", 100, 300);
-    ctx.fillText("JUNGLE", BIOME_WATER_WIDTH + 100, 300);
-    ctx.fillText("WASTELAND", forestEnd + 100, 300);
+    // Optional: Draw text overlays for biomes in view? 
+    // Removed for now to keep the organic feel pure.
   }
 
   private static drawEntities(
@@ -87,7 +61,9 @@ export class Renderer {
                     const cell = simulation.foodGrid.grid[idx];
                     for (const f of cell) {
                         if (f.energyValue <= 0) continue;
-                        ctx.fillStyle = f.position.x < BIOME_WATER_WIDTH ? '#22d3ee' : '#4ade80';
+                        // Use biome to color food slightly differently?
+                        const inWater = f.position.x < 1500; // rough guess for color, or look up biome
+                        ctx.fillStyle = f.position.x < 1500 ? '#22d3ee' : '#4ade80'; // fallback logic for speed
                         ctx.fillRect(f.position.x - 2, f.position.y - 2, 4, 4);
                     }
                 }

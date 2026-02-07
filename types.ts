@@ -73,3 +73,13 @@ export interface TreeNode {
 }
 
 export type ToolMode = 'inspect' | 'feed' | 'smite' | 'meteor';
+
+export enum BiomeType {
+  DEEP_OCEAN = 'deep_ocean',
+  OCEAN = 'ocean',
+  BEACH = 'beach',
+  PLAINS = 'plains',
+  FOREST = 'forest',
+  JUNGLE = 'jungle',
+  MOUNTAIN = 'mountain'
+}

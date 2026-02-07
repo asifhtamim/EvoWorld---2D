@@ -1,17 +1,22 @@
-import { Critter, Vector2 } from '../types';
+import { Critter, Vector2, BiomeType } from '../types';
 import * as Constants from '../constants';
 import { SpatialHash } from '../core/SpatialHash';
+import { TerrainSystem } from '../core/TerrainSystem';
 
 export class CreatureSystem {
   
   // --- Physics ---
 
   static move(critter: Critter, spatial: SpatialHash<Critter>) {
-    const inWater = critter.position.x < Constants.BIOME_WATER_WIDTH;
-    let friction = inWater ? Constants.BIOME_WATER_DRAG : Constants.BIOME_FOREST_FRICTION;
-    
-    if (!inWater && critter.position.x > Constants.BIOME_WATER_WIDTH + Constants.BIOME_FOREST_WIDTH) {
-        friction = Constants.BIOME_SCRUB_FRICTION;
+    const biome = TerrainSystem.getBiomeAt(critter.position.x, critter.position.y);
+    let friction = Constants.FRICTION_LAND;
+
+    if (biome === BiomeType.DEEP_OCEAN || biome === BiomeType.OCEAN) {
+        friction = Constants.FRICTION_WATER;
+    } else if (biome === BiomeType.MOUNTAIN) {
+        friction = Constants.FRICTION_MOUNTAIN;
+    } else if (biome === BiomeType.JUNGLE) {
+        friction = Constants.FRICTION_SWAMP;
     }
 
     critter.velocity.x *= friction;
@@ -32,7 +37,8 @@ export class CreatureSystem {
   }
 
   static normalizeVelocity(critter: Critter) {
-    const inWater = critter.position.x < Constants.BIOME_WATER_WIDTH;
+    const biome = TerrainSystem.getBiomeAt(critter.position.x, critter.position.y);
+    const inWater = (biome === BiomeType.OCEAN || biome === BiomeType.DEEP_OCEAN);
 
     let suitability = 0;
     if (inWater) {
@@ -46,6 +52,11 @@ export class CreatureSystem {
     // Armor slows you down slightly
     if (critter.genome.defense > 0.2) {
         maxSpeed *= (1.0 - (critter.genome.defense * 0.3));
+    }
+
+    // Mountain Penalty for non-climbers (not implemented yet, generic penalty)
+    if (biome === BiomeType.MOUNTAIN) {
+        maxSpeed *= 0.4;
     }
 
     if (inWater) {
@@ -76,7 +87,8 @@ export class CreatureSystem {
 
   static calculateMetabolism(critter: Critter) {
       const g = critter.genome;
-      const inWater = critter.position.x < Constants.BIOME_WATER_WIDTH;
+      const biome = TerrainSystem.getBiomeAt(critter.position.x, critter.position.y);
+      const inWater = (biome === BiomeType.OCEAN || biome === BiomeType.DEEP_OCEAN);
       
       const envVal = inWater ? 0.0 : 1.0;
       const mismatch = Math.abs(g.amphibious - envVal);
@@ -124,7 +136,8 @@ export class CreatureSystem {
     const dy = target.y - critter.position.y;
     const dist = Math.sqrt(dx*dx + dy*dy);
     if (dist > 0) {
-      const inWater = critter.position.x < Constants.BIOME_WATER_WIDTH;
+      const biome = TerrainSystem.getBiomeAt(critter.position.x, critter.position.y);
+      const inWater = (biome === BiomeType.OCEAN || biome === BiomeType.DEEP_OCEAN);
       let turnSpeed = 0.05;
 
       if (inWater) {

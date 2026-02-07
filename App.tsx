@@ -53,7 +53,11 @@ interface LogEntry {
 }
 
 const App: React.FC = () => {
-  const simulationRef = useRef<SimulationEngine>(new SimulationEngine());
+  // Use state initializer to ensure SimulationEngine is only created once.
+  // Passing 'new SimulationEngine()' directly to useRef would execute the constructor on every render,
+  // causing the TerrainSystem to reset (and terrain to flicker/change) repeatedly.
+  const [simulationInstance] = useState(() => new SimulationEngine());
+  const simulationRef = useRef<SimulationEngine>(simulationInstance);
   
   const [isPlaying, setIsPlaying] = useState(true);
   const [speed, setSpeed] = useState(1);
@@ -235,7 +239,7 @@ const App: React.FC = () => {
                   <div className="bg-gray-800 p-3 rounded border border-gray-700 flex flex-col justify-center">
                       <div className="text-gray-500 text-[10px] uppercase font-bold">Extinct</div>
                       <div className="text-xl font-mono text-red-400">
-                          {Array.from(simulationRef.current.species.values()).filter(s => s.extinct).length}
+                          {Array.from(simulationRef.current.species.values()).filter((s: Species) => s.extinct).length}
                       </div>
                   </div>
               </div>

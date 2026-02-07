@@ -1,4 +1,4 @@
-import { Critter, Food, Species, Genome, Vector2, ToolMode } from '../types';
+import { Critter, Food, Species, Genome, Vector2, ToolMode, BiomeType } from '../types';
 import * as Constants from '../constants';
 import { SpatialHash } from '../core/SpatialHash';
 import { GeneticSystem } from '../systems/Genetics';
@@ -6,6 +6,7 @@ import { EnvironmentSystem } from '../systems/Environment';
 import { CreatureSystem } from '../systems/Creature';
 import { BehaviorSystem } from '../systems/Behavior';
 import { EventBus } from '../core/EventBus';
+import { TerrainSystem } from '../core/TerrainSystem';
 
 export class SimulationEngine {
   public events = new EventBus();
@@ -43,6 +44,9 @@ export class SimulationEngine {
     this.critterGrid.clear();
     this.events.clear();
     
+    // Initialize or Re-seed Terrain
+    TerrainSystem.init();
+
     const rootSpeciesId = 'species_0';
     this.species.set(rootSpeciesId, {
       id: rootSpeciesId,
@@ -55,20 +59,24 @@ export class SimulationEngine {
       firstAppearedAt: 0,
     });
 
-    for(let i=0; i<Constants.INITIAL_POPULATION; i++) {
-        this.spawnCritter(
-            Math.random() * (Constants.BIOME_WATER_WIDTH - 50) + 20, 
-            Math.random() * Constants.WORLD_HEIGHT, 
-            rootSpeciesId, 
-            Constants.BASE_GENOME
-        );
+    // Spawn Initial Critters in valid water locations
+    let spawned = 0;
+    while(spawned < Constants.INITIAL_POPULATION) {
+        const x = Math.random() * Constants.WORLD_WIDTH;
+        const y = Math.random() * Constants.WORLD_HEIGHT;
+        const biome = TerrainSystem.getBiomeAt(x, y);
+        
+        if (biome === BiomeType.OCEAN || biome === BiomeType.DEEP_OCEAN) {
+            this.spawnCritter(x, y, rootSpeciesId, Constants.BASE_GENOME);
+            spawned++;
+        }
     }
   
     for (let i = 0; i < 5000; i++) {
         EnvironmentSystem.spawnRandomFood(this.food, this.foodGrid, this.generateId);
     }
     
-    this.events.emit('LOG', { message: 'World Reset. Simulation Initialized.', type: 'system' });
+    this.events.emit('LOG', { message: 'World Generated. Simulation Initialized.', type: 'system' });
   }
 
   private spawnCritter(x: number, y: number, speciesId: string, genome: Genome) {
