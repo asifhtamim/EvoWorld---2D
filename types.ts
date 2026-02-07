@@ -11,6 +11,7 @@ export interface Genome {
   color: string;        
   diet: number;         // 0.0 = Herbivore, 1.0 = Carnivore
   amphibious: number;   // 0.0 = Water specialized, 1.0 = Land specialized
+  defense: number;      // 0.0 = Soft, 1.0 = Armored/Spiked
   
   // Morphology
   limbCount: number;    // 0 to 8 (Legs or Fins)

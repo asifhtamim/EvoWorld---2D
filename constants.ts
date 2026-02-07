@@ -29,6 +29,8 @@ export const ENERGY_COST_MOVE_BASE = 0.02;
 export const ENERGY_COST_PER_LIMB = 0.005; 
 export const ENERGY_COST_MOUTH_SIZE = 0.01;
 export const ENERGY_COST_EXIST = 0.02; 
+export const ENERGY_COST_DEFENSE = 0.03; // Heavy armor cost
+
 export const ENERGY_GAIN_FOOD = 100; // Increased nutritional value
 export const ENERGY_GAIN_MEAT_MULTIPLIER = 1.0; 
 export const STARTING_ENERGY = 300; // "Packed lunch" for new critters
@@ -51,7 +53,8 @@ export const MUTATION_CONFIG = {
   LIMB_LENGTH: { RATE: 0.2, VARIANCE: 0.2 },
   MOUTH_SIZE: { RATE: 0.2, VARIANCE: 0.2 },
   AMPHIBIOUS: { RATE: 0.20, VARIANCE: 0.15 },
-  REPRO_THRESHOLD: { RATE: 0.2, VARIANCE: 0.15 } 
+  REPRO_THRESHOLD: { RATE: 0.2, VARIANCE: 0.15 },
+  DEFENSE: { RATE: 0.15, VARIANCE: 0.25 } // High variance to allow sudden armor development
 };
 
 export const BASE_GENOME = {
@@ -64,5 +67,6 @@ export const BASE_GENOME = {
   limbCount: 2, 
   limbLength: 5,
   mouthSize: 3,
-  amphibious: 0.0 
+  amphibious: 0.0,
+  defense: 0.0
 };
